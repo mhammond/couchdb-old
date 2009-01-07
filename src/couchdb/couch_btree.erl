@@ -244,28 +244,28 @@ complete_root(Bt, KPs) ->
 % written. Plus with the "case size(term_to_binary(InList)) of" code it's
 % probably really inefficient.
 
-chunkify([]) ->
+chunkify(_Bt, []) ->
     [];
-chunkify(InList) ->
+chunkify(Bt, InList) ->
     case size(term_to_binary(InList)) of
     Size when Size > ?CHUNK_THRESHOLD ->
         NumberOfChunksLikely = ((Size div ?CHUNK_THRESHOLD) + 1),
         ChunkThreshold = Size div NumberOfChunksLikely,
-        chunkify(InList, ChunkThreshold, [], 0, []);
+        chunkify(Bt, InList, ChunkThreshold, [], 0, []);
     _Else ->
         [InList]
     end.
 
-chunkify([], _ChunkThreshold, [], 0, OutputChunks) ->
+chunkify(_Bt, [], _ChunkThreshold, [], 0, OutputChunks) ->
     lists:reverse(OutputChunks);
-chunkify([], _ChunkThreshold, OutList, _OutListSize, OutputChunks) ->
+chunkify(_Bt, [], _ChunkThreshold, OutList, _OutListSize, OutputChunks) ->
     lists:reverse([lists:reverse(OutList) | OutputChunks]);
-chunkify([InElement | RestInList], ChunkThreshold, OutList, OutListSize, OutputChunks) ->
+chunkify(Bt, [InElement | RestInList], ChunkThreshold, OutList, OutListSize, OutputChunks) ->
     case size(term_to_binary(InElement)) of
     Size when (Size + OutListSize) > ChunkThreshold andalso OutList /= [] ->
-        chunkify(RestInList, ChunkThreshold, [], 0, [lists:reverse([InElement | OutList]) | OutputChunks]);
+        chunkify(Bt, RestInList, ChunkThreshold, [], 0, [lists:reverse([InElement | OutList]) | OutputChunks]);
     Size ->
-        chunkify(RestInList, ChunkThreshold, [InElement | OutList], OutListSize + Size, OutputChunks)
+        chunkify(Bt, RestInList, ChunkThreshold, [InElement | OutList], OutListSize + Size, OutputChunks)
     end.
 
 modify_node(Bt, RootPointerInfo, Actions, QueryOutput) ->
@@ -308,7 +308,7 @@ get_node(#btree{fd = Fd}, NodePos) ->
 
 write_node(Bt, NodeType, NodeList) ->
     % split up nodes into smaller sizes
-    NodeListList = chunkify(NodeList),
+    NodeListList = chunkify(Bt, NodeList),
     % now write out each chunk and return the KeyPointer pairs for those nodes
     ResultList = [
         begin
