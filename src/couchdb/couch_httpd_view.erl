@@ -254,6 +254,8 @@ parse_view_query(Req, Keys, IsReduce) ->
                 Msg = io_lib:format("Bad URL query value, number expected: limit=~s", [Value]),
                 throw({query_parse_error, Msg})
             end;
+        {"count", Value} ->
+            throw({query_parse_error, "URL query parameter 'count' has been changed to 'limit'."});
         {"update", "false"} ->
             Args#view_query_args{update=false};
         {"descending", "true"} ->
@@ -306,19 +308,6 @@ parse_view_query(Req, Keys, IsReduce) ->
         {"reduce", "false"} ->
             Args#view_query_args{reduce=false};
         {"include_docs", Value} ->
-            case IsReduce of
-            true ->
-                #view_query_args{reduce=OptReduce} = Args,
-                case OptReduce of
-                    true ->
-                        Msg = lists:flatten(io_lib:format("Bad URL query key for reduce operation: ~s", [Key])),
-                        throw({query_parse_error, Msg});
-                _ ->
-                    ok
-                end;
-            _ ->
-                ok
-            end,
             case Value of
             "true" ->
                 Args#view_query_args{include_docs=true};
@@ -334,6 +323,18 @@ parse_view_query(Req, Keys, IsReduce) ->
             throw({query_parse_error, Msg})
         end
     end, #view_query_args{}, QueryList),
+    case IsReduce of
+    true ->
+        case QueryArgs#view_query_args.include_docs and QueryArgs#view_query_args.reduce of
+        true ->
+            ErrMsg = "Bad URL query key for reduce operation: include_docs",
+            throw({query_parse_error, ErrMsg});
+        _ ->
+            ok
+        end;
+    _ ->
+        ok
+    end,
     case Keys of
     nil ->
         QueryArgs;
