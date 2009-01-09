@@ -15,8 +15,11 @@ specific language governing permissions and limitations under the License.
 
 /* General styles */
 
-html, body { background: transparent; color: #000;
-  font: normal 90% Arial,Helvetica,sans-serif; margin: 0; padding: 0;
+html, body { color: #000; font: normal 90% Arial,Helvetica,sans-serif;
+  height: 100%; margin: 0; padding: 0; overflow: hidden;
+}
+body { background: #fff url(../image/bg.png) 100% 0 repeat-y;
+  padding-right: 210px;
 }
 :link, :visited { color: #ba1e16; text-decoration: none; }
 :link img, :visited img { border: none; }
@@ -130,9 +133,10 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 
 /* Logo & Navigation */
 
-#wrap { padding: 0 20px 3em; }
-
-#logo { position: absolute; top: 20px; right: 18px; }
+#sidebar { background: #fff; position: absolute; top: 0; right: 0;
+  width: 210px; height: 100%;
+}
+#logo { padding: 20px 18px; }
 
 #nav { color: #333; font-size: 110%; font-weight: bold; list-style: none;
   margin: 0; overflow: auto; padding: 0; position: absolute; top: 185px;
@@ -159,14 +163,23 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 #nav li li.selected :link:hover, #nav li li.selected :visited:hover {
   color: #fff;
 }
+#nav li button { background: transparent 0 0 no-repeat; border: none;
+  cursor: pointer; width: 15px; height: 15px; margin-left: .5em;
+  vertical-align: top;
+}
+#nav li li:hover button.remove {
+  background-image: url(../image/delete-mini.png);
+}
+#nav li button.remove:hover { background-position: -15px 0; }
 
 #footer { background: #ddd; border-top: 1px solid #bbb; color: #000;
   font-size: 80%; opacity: .7; padding: 5px 10px; position: absolute; right: 0;
   bottom: 0; min-height: 1.3em; width: 190px; text-align: right;
 }
-#view { position: absolute; left: 0; right: 210px; top: 0; bottom: 0;
-  height: 100%;
-}
+#footer :link, #footer :visited { color: #000; }
+
+#wrap { height: 100%; overflow: auto; }
+#content { padding: 0 20px 3em; }
 
 /* Toolbar */
 
@@ -180,13 +193,12 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 }
 #toolbar button:hover { background-position: 2px -30px; color: #000; }
 #toolbar button:active { background-position: 2px -62px; color: #000; }
-#toolbar button.add { background-image: url(../image/add.gif); }
-#toolbar button.compact { background-image: url(../image/compact.gif); }
-#toolbar button.delete { background-image: url(../image/delete.gif); }
-#toolbar button.edit { background-image: url(../image/edit.gif); }
-#toolbar button.load { background-image: url(../image/load.gif); }
-#toolbar button.run { background-image: url(../image/run.gif); }
-#toolbar button.save { background-image: url(../image/save.gif); }
+#toolbar button.add { background-image: url(../image/add.png); }
+#toolbar button.compact { background-image: url(../image/compact.png); }
+#toolbar button.delete { background-image: url(../image/delete.png); }
+#toolbar button.load { background-image: url(../image/load.png); }
+#toolbar button.run { background-image: url(../image/run.png); }
+#toolbar button.save { background-image: url(../image/save.png); }
 
 /* Dialogs */
 
@@ -339,7 +351,7 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 #fields col.field { width: 33%; }
 #fields tbody.content th { padding-left: 25px; padding-right: 48px; }
 #fields tbody.content th button {
-  background-image: url(../image/delete-mini.gif);
+  background-image: url(../image/delete-mini.png);
 }
 #fields tbody.content th b { display: block; padding: 2px; }
 #fields tbody.content td { padding-left: 14px; padding-right: 48px; }
@@ -416,7 +428,7 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
   background-position: -15px 0;
 }
 #fields tbody.content td ul.attachments li button.delete {
-  background-image: url(../image/delete-mini.gif);
+  background-image: url(../image/delete-mini.png);
 }
 #fields tbody.source td code { display: block; overflow: auto;
   white-space: pre-wrap; width: 100%;
@@ -432,7 +444,7 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
   white-space: nowrap;
 }
 #tests tbody.content th button {
-  background-image: url(../image/run-mini.gif);
+  background-image: url(../image/run-mini.png);
 }
 #tests tbody.content td.duration { text-align: right; width: 6em; }
 #tests tbody.content td.status { background-position: 5px 8px;
@@ -449,7 +461,7 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 #tests tbody.content td.details ol code { color: #c00; font-size: 100%; }
 #tests tbody.content td.details ol code.error { white-space: pre; }
 #tests tbody.content td.running {
-  background-image: url(../image/running.gif); color: #333;
+  background-image: url(../image/running.png); color: #333;
 }
 #tests tbody.content td.success {
   background-image: url(../image/test_success.gif); color: #060;
