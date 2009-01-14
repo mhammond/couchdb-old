@@ -36,6 +36,7 @@ nobase_dist_localdata_DATA = \
     www/image/order-desc.gif \
     www/image/path.gif \
     www/image/progress.gif \
+    www/image/rarrow.png \
     www/image/run-mini.png \
     www/image/run.png \
     www/image/running.png \
@@ -54,11 +55,12 @@ nobase_dist_localdata_DATA = \
     www/database.html \
     www/document.html \
     www/replicator.html \
-    www/script/browse.js \
     www/script/couch.js \
     www/script/couch_tests.js \
     www/script/couch_test_runner.js \
     www/script/futon.js \
+    www/script/futon.browse.js \
+    www/script/futon.format.js \
     www/script/jquery.js \
     www/script/jquery.cookies.js \
     www/script/jquery.couch.js \
@@ -67,5 +69,4 @@ nobase_dist_localdata_DATA = \
     www/script/jquery.resizer.js \
     www/script/jquery.suggest.js \
     www/script/json2.js \
-    www/script/pprint.js \
     www/style/layout.css
