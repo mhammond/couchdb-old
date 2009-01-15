@@ -39,7 +39,6 @@
 
       this.updateDatabaseListing = function(offset) {
         offset |= 0;
-        $(document.body).addClass("loading");
         var maxPerPage = parseInt($("#perpage").val(), 10);
 
         $.couch.allDbs({
@@ -47,9 +46,6 @@
             $("#paging a").unbind();
             $("#databases tbody.content").empty();
 
-            if (dbs.length == 0) {
-              $(document.body).removeClass("loading");
-            }
             var dbsOnPage = dbs.slice(offset, offset + maxPerPage);
 
             $.each(dbsOnPage, function(idx, dbName) {
@@ -64,9 +60,6 @@
                     .find("td.size").text($.futon.formatSize(info.disk_size)).end()
                     .find("td.count").text(info.doc_count).end()
                     .find("td.seq").text(info.update_seq);
-                  if (idx == dbsOnPage.length - 1) {
-                    $(document.body).removeClass("loading");
-                  }
                 }
               });
             });
@@ -109,6 +102,7 @@
       } else {
         viewName = $.cookies.get(dbName + ".view", "");
         if (viewName) {
+          this.redirecting = true;
           location.href = "database.html?" + dbName + "/" + viewName;
         }
       }
@@ -116,10 +110,17 @@
 
       this.dbName = dbName;
       this.viewName = viewName;
+      this.viewLanguage = "javascript";
       this.db = db;
       this.isDirty = false;
       this.isTempView = viewName == "_slow_view";
       page = this;
+
+      var templates = {
+        javascript: "function(doc) {\n  emit(null, doc);\n}",
+        python: "def fun(doc):\n  yield None, doc",
+        ruby: "{|doc|\n  emit(nil, doc);\n}"
+      }
 
       this.addDocument = function() {
         $.showDialog("dialog/_create_document.html", {
@@ -177,7 +178,8 @@
               dirtyTimeout = setTimeout(function() {
                 var buttons = $("#viewcode button.save, #viewcode button.revert");
                 page.isDirty = ($("#viewcode_map").val() != page.storedViewCode.map)
-                  || ($("#viewcode_reduce").val() != (page.storedViewCode.reduce || ""));
+                  || ($("#viewcode_reduce").val() != (page.storedViewCode.reduce || ""))
+                  || page.viewLanguage != page.storedViewLanguage;
                 if (page.isDirty) {
                   buttons.removeAttr("disabled");
                 } else {
@@ -194,13 +196,48 @@
                                      .bind("keyup", updateDirtyState)
                                      .bind("textInput", updateDirtyState);
             }
+            $("#language").change(updateDirtyState);
           });
         } else if (viewName == "_slow_view") {
+          page.viewLanguage = $.cookies.get(db.name + ".language", page.viewLanguage);
           page.updateViewEditor(
-            $.cookies.get(db.name + ".map"),
+            $.cookies.get(db.name + ".map", templates[page.viewLanguage]),
             $.cookies.get(db.name + ".reduce", "")
           );
         }
+        page.populateLanguagesMenu();
+      }
+
+      // Populate the languages dropdown, and listen to selection changes
+      this.populateLanguagesMenu = function() {
+        $.couch.config({
+          success: function(resp) {
+            var select = $("#language");
+            for (var language in resp) {
+              var option = $(document.createElement("option"))
+                .attr("value", language).text(language)
+                .appendTo(select);
+            }
+            if (select[0].options.length == 1) {
+              select[0].disabled = true;
+            } else {
+              select.val(page.viewLanguage);
+              select.change(function() {
+                var language = $("#language").val();
+                if (language != page.viewLanguage) {
+                  var mapFun = $("#viewcode_map").val();
+                  if (mapFun == "" || mapFun == templates[page.viewLanguage]) {
+                    // no edits made, so change to the new default
+                    $("#viewcode_map").val(templates[language]);
+                  }
+                  page.viewLanguage = language;
+                  $("#viewcode_map")[0].focus();
+                }
+                return false;
+              });
+            }
+          }
+        }, "query_servers");
       }
 
       this.populateViewsMenu = function() {
@@ -211,7 +248,6 @@
             for (var i = 0; i < resp.rows.length; i++) {
               db.openDoc(resp.rows[i].id, {
                 success: function(doc) {
-                  var optGroup = $("<optgroup></optgroup>").attr("label", doc._id.substr(8));
                   var optGroup = $(document.createElement("optgroup"))
                     .attr("label", doc._id.substr(8));
                   for (var name in doc.views) {
@@ -247,22 +283,27 @@
             error: function(status, error, reason) {
               if (status == 404) {
                 $.cookies.remove(dbName + ".view");
-                location.reload();
+                location.href = "database.html?" + encodeURIComponent(db.name);
               }
             },
             success: function(resp) {
               var viewCode = resp.views[localViewName];
+              page.viewLanguage = resp.language || "javascript";
+              $("#language").val(page.viewLanguage);
               page.updateViewEditor(viewCode.map, viewCode.reduce || "");
               $("#viewcode button.revert, #viewcode button.save").attr("disabled", "disabled");
               page.storedViewCode = viewCode;
+              page.storedViewLanguage = page.viewLanguage;
               if (callback) callback();
             }
           });
         } else {
-          $("#viewcode_map").val(page.storedViewCode.map);
-          $("#viewcode_reduce").val(page.storedViewCode.reduce || "");
-          page.isDirty = false;
+          page.updateViewEditor(page.storedViewCode.map,
+            page.storedViewCode.reduce || "");
+          page.viewLanguage = page.storedViewLanguage;
+          $("#language").val(page.viewLanguage);
           $("#viewcode button.revert, #viewcode button.save").attr("disabled", "disabled");
+          page.isDirty = false;
           if (callback) callback();
         }
       }
@@ -331,7 +372,23 @@
               };
               var docId = ["_design", data.docid].join("/");
               function save(doc) {
-                if (!doc) doc = {_id: docId, language: "javascript"};
+                if (!doc) {
+                  doc = {_id: docId, language: page.viewLanguage};
+                } else {
+                  var numViews = 0;
+                  for (var viewName in (doc.views || {})) {
+                    if (viewName != data.name) numViews++;
+                  }
+                  if (numViews > 0 && page.viewLanguage != doc.language) {
+                    callback({
+                      docid: "Cannot save to " + data.docid +
+                             " because its language is \"" + doc.language +
+                             "\", not \"" + page.viewLanguage + "\"."
+                    });
+                    return;
+                  }
+                  doc.language = page.viewLanguage;
+                }
                 if (doc.views === undefined) doc.views = {};
                 doc.views[data.name] = viewCode;
                 db.saveDoc(doc, {
@@ -362,9 +419,19 @@
         var viewNameParts = viewName.split("/");
         var designDocId = viewNameParts[1];
         var localViewName = viewNameParts[2];
-        $(document.body).addClass("loading");
         db.openDoc(["_design", designDocId].join("/"), {
           success: function(doc) {
+            var numViews = 0;
+            for (var viewName in (doc.views || {})) {
+              if (viewName != localViewName) numViews++;
+            }
+            if (numViews > 0 && page.viewLanguage != doc.language) {
+              alert("Cannot save view because the design document language " +
+                    "is \"" + doc.language + "\", not \"" +
+                    page.viewLanguage + "\".");
+              return;
+            }
+            doc.language = page.viewLanguage;
             var viewDef = doc.views[localViewName];
             viewDef.map = $("#viewcode_map").val();
             viewDef.reduce = $("#viewcode_reduce").val() || undefined;
@@ -373,7 +440,6 @@
                 page.isDirty = false;
                 $("#viewcode button.revert, #viewcode button.save")
                   .attr("disabled", "disabled");
-                $(document.body).removeClass("loading");
               }
             });
           }
@@ -391,7 +457,6 @@
       }
 
       this.updateDocumentListing = function(options) {
-        $(document.body).addClass("loading");
         if (options === undefined) options = {};
         if (options.limit === undefined) {
           options.limit = parseInt($("#perpage").val(), 10);
@@ -502,11 +567,9 @@
             "Showing " + firstNum + "-" + lastNum + " of " + totalNum +
             " row" + (firstNum != lastNum ? "s" : ""));
           $("#documents tbody tr:odd").addClass("odd");
-          $(document.body).removeClass("loading");
         }
         options.error = function(status, error, reason) {
           alert("Error: " + error + "\n\n" + reason);
-          $(document.body).removeClass("loading");
         }
 
         if (!viewName || viewName == "_all_docs") {
@@ -523,7 +586,8 @@
             } else {
               $.cookies.remove(db.name + ".reduce");
             }
-            db.query(mapFun, reduceFun, null, options);
+            $.cookies.set(db.name + ".language", page.viewLanguage);
+            db.query(mapFun, reduceFun, page.viewLanguage, options);
           } else if (viewName == "_design_docs") {
             options.startkey = options.descending ? "_design0" : "_design";
             options.endkey = options.descending ? "_design" : "_design0";
@@ -533,7 +597,7 @@
             var currentMapCode = $("#viewcode_map").val();
             var currentReduceCode = $("#viewcode_reduce").val() || null;
             if (page.isDirty) {
-              db.query(currentMapCode, currentReduceCode, null, options);
+              db.query(currentMapCode, currentReduceCode, page.viewLanguage, options);
             } else {
               db.view(viewName.substr(8), options);
             }
@@ -596,7 +660,7 @@
         page.doc[fieldName] = null;
         var row = _addRowForField(page.doc, fieldName);
         page.isDirty = true;
-        _editKey(page.doc, row.find("th"), fieldName);
+        row.find("th b").dblclick();
       }
 
       var _sortFields = function(a, b) {
@@ -613,7 +677,6 @@
       }
 
       this.updateFieldListing = function() {
-        $(document.body).addClass("loading");
         $("#fields tbody.content").empty();
 
         function handleResult(doc, revs) {
@@ -652,7 +715,6 @@
           if (location.hash == "#source") {
             page.activateSourceView();
           }
-          $(document.body).removeClass("loading");
         }
 
         db.openDoc(docId, {revs_info: true,
@@ -692,8 +754,10 @@
       }
 
       this.saveDocument = function() {
-        $(document.body).addClass("loading");
         db.saveDoc(page.doc, {
+          error: function(status, error, reason) {
+            alert("Error: " + error + "\n\n" + reason);
+          },
           success: function(resp) {
             page.isDirty = false;
             location.href = "?" + encodeURIComponent(dbName) +
@@ -740,167 +804,123 @@
       }
 
       function _addRowForField(doc, fieldName) {
-        var row = $("<tr><th></th><td></td></tr>").find("th").append($("<b></b>")
-          .text(fieldName)).end().appendTo("#fields tbody.content");
+        var row = $("<tr><th></th><td></td></tr>")
+          .find("th").append($("<b></b>").text(fieldName)).end()
+          .appendTo("#fields tbody.content");
         if (fieldName == "_attachments") {
-          row
-            .find("td").append(_renderAttachmentList(doc[fieldName]));
+          row.find("td").append(_renderAttachmentList(doc[fieldName]));
         } else {
-          var value = _renderValue(doc[fieldName]);
-          row
-            .find("th b").dblclick(function() {
-              _editKey(doc, this, $(this).text());
-            }).end()
-            .find("td").append(value).dblclick(function() {
-              _editValue(doc, this, $(this).prev("th").text());
-            }).end();
-          if (fieldName != "_id" && fieldName != "_rev") {
-            row.find("th, td").attr("title", "Double click to edit");
-            _initKey(doc, row, fieldName);
-            _initValue(value);
-          }
+          row.find("td").append(_renderValue(doc[fieldName]));
+          _initKey(doc, row, fieldName);
+          _initValue(doc, row, fieldName);
         }
         $("#fields tbody.content tr").removeClass("odd").filter(":odd").addClass("odd");
+        row.data("name", fieldName);
         return row;
       }
 
-      function _editKey(doc, cell, fieldName) {
-        if (fieldName == "_id" || fieldName == "_rev") return;
-        var th = $(cell);
-        th.empty();
-        var input = $("<input type='text' spellcheck='false'>");
-        input.dblclick(function() { return false; }).keydown(function(evt) {
-          switch (evt.keyCode) {
-            case 13: applyChange(); break;
-            case 27: cancelChange(); break;
-          }
-        });
-        var tools = $("<div class='tools'></div>");
-        function applyChange() {
-          input.nextAll().remove();
-          var newName = input.val();
-          if (!newName.length || newName == fieldName) {
-            cancelChange();
-            return;
-          }
-          doc[newName] = doc[fieldName];
-          delete doc[fieldName];
-          th.children().remove();
-          th.append($("<b></b>").text(newName));
-          _initKey(doc, th.parent("tr"), newName);
-          page.isDirty = true;
-        }
-        function cancelChange() {
-          th.children().remove();
-          th.append($("<b></b>").text(fieldName));
-          _initKey(doc, th.parent("tr"), fieldName);
-        }
-
-        $("<button type='button' class='apply'></button>").click(function() {
-          applyChange();
-        }).appendTo(tools);
-        $("<button type='button' class='cancel'></button>").click(function() {
-          cancelChange();
-        }).appendTo(tools);
-        tools.appendTo(th);
-        input.val(fieldName).appendTo(th);
-        input.each(function() { this.focus(); this.select(); });
-      }
-
-      function _editValue(doc, cell, fieldName) {
-        if (!fieldName || fieldName == "_id" || fieldName == "_rev") return;
-        var td = $(cell);
-        var value = doc[fieldName];
-        var needsTextarea = $("dl", td).length > 0 || $("code", td).text().length > 60;
-        td.empty();
-        if (needsTextarea) {
-          var input = $("<textarea rows='8' cols='40' spellcheck='false'></textarea>");
-        } else {
-          var input = $("<input type='text' spellcheck='false'>");
-        }
-        input.dblclick(function() { return false; }).keydown(function(evt) {
-          switch (evt.keyCode) {
-            case 13: if (!needsTextarea) applyChange(); break;
-            case 27: cancelChange(); break;
-          }
-        });
-        var tools = $("<div class='tools'></div>");
-        function applyChange() {
-          input.nextAll().remove();
-          try {
-            var newValue = input.val() || "null";
-            if (newValue == doc[fieldName]) {
-              cancelChange();
-              return;
-            }
-            doc[fieldName] = JSON.parse(newValue);
-            td.children().remove();
-            page.isDirty = true;
-            var value = _renderValue(doc[fieldName]);
-            td.append(value);
-            _initValue(value);
-          } catch (err) {
-            input.addClass("invalid");
-            var msg = err.message;
-            if (msg == "parseJSON") {
-              msg = "Please enter a valid JSON value (for example, \"string\").";
-            }
-            $("<div class='error'></div>").text(msg).insertAfter(input);
-          }
-        }
-        function cancelChange() {
-          td.children().remove();
-          var value = _renderValue(doc[fieldName]);
-          td.append(value);
-          _initValue(value);
-        }
-
-        $("<button type='button' class='apply' title='Apply change'></button>").click(function() {
-          applyChange();
-        }).appendTo(tools);
-        $("<button type='button' class='cancel' title='Revert change'></button>").click(function() {
-          cancelChange();
-        }).appendTo(tools);
-        tools.appendTo(td);
-        input.val($.futon.formatJSON(value)).appendTo(td);
-        input.each(function() { this.focus(); this.select(); });
-        if (needsTextarea) input.makeResizable({vertical: true});
-      }
-
       function _initKey(doc, row, fieldName) {
-        if (fieldName != "_id" && fieldName != "_rev") {
-          $("<button type='button' class='delete' title='Delete field'></button>").click(function() {
-            delete doc[fieldName];
-            row.remove();
-            page.isDirty = true;
-            $("#fields tbody.content tr").removeClass("odd").filter(":odd").addClass("odd");
-          }).prependTo(row.find("th"));
+        if (fieldName == "_id" || fieldName == "_rev") {
+          return;
         }
+
+        var cell = row.find("th");
+
+        $("<button type='button' class='delete' title='Delete field'></button>").click(function() {
+          delete doc[fieldName];
+          row.remove();
+          page.isDirty = true;
+          $("#fields tbody.content tr").removeClass("odd").filter(":odd").addClass("odd");
+        }).prependTo(cell);
+
+        cell.find("b").makeEditable({allowEmpty: false,
+          accept: function(newName, oldName) {
+            doc[newName] = doc[oldName];
+            delete doc[oldName];
+            row.data("name", newName);
+            $(this).text(newName);
+            page.isDirty = true;
+          },
+          begin: function() {
+            row.find("th button.delete").hide();
+            return true;
+          },
+          end: function(keyCode) {
+            row.find("th button.delete").show();
+            if (keyCode == 9) { // tab, move to editing the value
+              row.find("td").dblclick();
+            }
+          }
+        });
       }
 
-      function _initValue(value) {
-        value.find("dd:has(dl)").hide().prev("dt").addClass("collapsed");
-        value.find("dd:not(:has(dl))").addClass("inline").prev().addClass("inline");
-        value.find("dt.collapsed").click(function() {
-          $(this).toggleClass("collapsed").next().toggle();
+      function _initValue(doc, row, fieldName) {
+        if (fieldName == "_id" || fieldName == "_rev") {
+          return;
+        }
+
+        row.find("td").makeEditable({allowEmpty: true,
+          createInput: function(value) {
+            if ($("dl", this).length > 0 || $("code", this).text().length > 60) {
+              return $("<textarea rows='8' cols='40' spellcheck='false'></textarea>");
+            }
+            return $("<input type='text' spellcheck='false'>");
+          },
+          prepareInput: function(input) {
+            if ($(input).is("textarea")) {
+              $(input).makeResizable({vertical: true});
+            }
+          },
+          accept: function(newValue) {
+            doc[row.data("name")] = JSON.parse(newValue);
+            $(this).children().remove();
+            page.isDirty = true;
+            var value = _renderValue(doc[row.data("name")]);
+            $(this).append(value);
+          },
+          populate: function(value) {
+            return $.futon.formatJSON(doc[row.data("name")]);
+          },
+          validate: function(value) {
+            try {
+              JSON.parse(value);
+              return true;
+            } catch (err) {
+              var msg = err.message;
+              if (msg == "parseJSON") {
+                msg = "Please enter a valid JSON value (for example, \"string\").";
+              }
+              $("<div class='error'></div>").text(msg).appendTo(this);
+              return false;
+            }
+          }
         });
       }
 
       function _renderValue(value) {
-        var type = typeof(value);
-        if (type == "object" && value !== null) {
-          var list = $("<dl></dl>");
-          for (var i in value) {
-            if (!value.hasOwnProperty(i)) continue;
-            $("<dt></dt>").text(i).appendTo(list);
-            $("<dd></dd>").append(_renderValue(value[i])).appendTo(list);
+        function render(val) {
+          var type = typeof(val);
+          if (type == "object" && val !== null) {
+            var list = $("<dl></dl>");
+            for (var i in val) {
+              if (!value.hasOwnProperty(i)) continue;
+              $("<dt></dt>").text(i).appendTo(list);
+              $("<dd></dd>").append(_renderValue(val[i])).appendTo(list);
+            }
+            return list;
+          } else {
+            return $($.futon.formatJSON(val, {html: true}));
           }
-          return list;
-        } else {
-          return $("<code></code>").addClass(type).text(
-            value !== null ? JSON.stringify(value) : "null"
-          );
         }
+        var elem = render(value);
+
+        elem.find("dd:has(dl)").hide().prev("dt").addClass("collapsed");
+        elem.find("dd:not(:has(dl))").addClass("inline").prev().addClass("inline");
+        elem.find("dt.collapsed").click(function() {
+          $(this).toggleClass("collapsed").next().toggle();
+        });
+
+        return elem;
       }
 
       function _renderAttachmentList(attachments) {
