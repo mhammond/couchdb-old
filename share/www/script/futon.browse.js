@@ -251,7 +251,6 @@
                   var optGroup = $(document.createElement("optgroup"))
                     .attr("label", doc._id.substr(8));
                   for (var name in doc.views) {
-                    if (!doc.views.hasOwnProperty(name)) continue;
                     var option = $(document.createElement("option"))
                       .attr("value", doc._id + "/" + name).text(name)
                       .appendTo(optGroup);
@@ -331,12 +330,14 @@
           load: function(elem) {
             $("#input_docid", elem).val(designDocId).suggest(function(text, callback) {
               db.allDocs({
-                limit: 10, startkey: "_design/" + text,
-                endkey: "_design/" + text + "ZZZZ",
+                limit: 10, startkey: "_design/" + text, endkey: "_design0",
                 success: function(docs) {
                   var matches = [];
                   for (var i = 0; i < docs.rows.length; i++) {
-                    matches[i] = docs.rows[i].id.substr(8);
+                    var docName = docs.rows[i].id.substr(8);
+                    if (docName.substr(0, text.length) == text) {
+                      matches[i] = docName;
+                    }
                   }
                   callback(matches);
                 }
@@ -349,10 +350,9 @@
                   var matches = [];
                   if (!doc.views) return;
                   for (var viewName in doc.views) {
-                    if (!doc.views.hasOwnProperty(viewName) || !viewName.match("^" + text)) {
-                      continue;
+                    if (viewName.substr(0, text.length) == text) {
+                      matches.push(viewName);
                     }
-                    matches.push(viewName);
                   }
                   callback(matches);
                 }
@@ -683,7 +683,6 @@
           page.doc = doc;
           var propNames = [];
           for (var prop in doc) {
-            if (!doc.hasOwnProperty(prop)) continue;
             propNames.push(prop);
           }
           // Order properties alphabetically, but put internal fields first
@@ -903,7 +902,6 @@
           if (type == "object" && val !== null) {
             var list = $("<dl></dl>");
             for (var i in val) {
-              if (!value.hasOwnProperty(i)) continue;
               $("<dt></dt>").text(i).appendTo(list);
               $("<dd></dd>").append(_renderValue(val[i])).appendTo(list);
             }
