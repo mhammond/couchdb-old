@@ -2179,37 +2179,38 @@ var tests = {
           };
         }
       };
+
       var test;
-      for(test in repTests)
-        if(repTests[test].init) repTests[test].init(dbA, dbB);
-      
-      try {
-        T(CouchDB.replicate(A, B).ok);
-      } catch (e) {
-        if(window.location.host.match(/localhost/)) {
-          alert("Hi, the replication test failed. The most likely cause is that 'localhost' resolves to ::1 (IPv6) and CouchDB only listenes at 127.0.0.1 (IPv4). Try 127.0.0.1 to access Futon and run this test suite again.");
+      for(test in repTests) {
+        if(repTests[test].init) {
+          repTests[test].init(dbA, dbB);
         }
-        throw e;
       }
-      
-      for(test in repTests)
-        if(repTests[test].afterAB1) repTests[test].afterAB1(dbA, dbB);
-        
-      T(CouchDB.replicate(B, A).ok);
-      
-      for(test in repTests)
-        if(repTests[test].afterBA1) repTests[test].afterBA1(dbA, dbB);
-      
+
       T(CouchDB.replicate(A, B).ok);
-      
-      for(test in repTests)
-        if(repTests[test].afterAB2) repTests[test].afterAB2(dbA, dbB);
-        
+
+      for(test in repTests) {
+        if(repTests[test].afterAB1) repTests[test].afterAB1(dbA, dbB);
+      }
+
       T(CouchDB.replicate(B, A).ok);
-      
-      for(test in repTests)
+
+      for(test in repTests) {
+        if(repTests[test].afterBA1) repTests[test].afterBA1(dbA, dbB);
+      }
+
+      T(CouchDB.replicate(A, B).ok);
+
+      for(test in repTests) {
+        if(repTests[test].afterAB2) repTests[test].afterAB2(dbA, dbB);
+      }
+
+      T(CouchDB.replicate(B, A).ok);
+
+      for(test in repTests) {
         if(repTests[test].afterBA2) repTests[test].afterBA2(dbA, dbB);
-      
+      }
+
     }
   },
 
