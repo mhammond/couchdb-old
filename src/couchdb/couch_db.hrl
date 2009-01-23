@@ -143,8 +143,7 @@
     end_key = {},
     limit = 10000000000, % a huge huge default number. Picked so we don't have
                          % to do different logic for when there is no limit
-                         % limit
-    update = true,
+    stale = false,
     direction = fwd,
     start_docid = nil,
     end_docid = {},
@@ -152,6 +151,20 @@
     group_level = 0,
     reduce = true,
     include_docs = false
+}).
+
+-record(view_fold_helper_funs, {
+    reduce_count,
+    passed_end,
+    start_response,
+    send_row
+}).
+
+-record(extern_resp_args, {
+    code = 200,
+    data = <<>>,
+    ctype = "application/json",
+    headers = []
 }).
 
 -record(group,
