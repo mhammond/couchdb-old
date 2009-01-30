@@ -114,7 +114,7 @@
       this.viewLanguage = "javascript";
       this.db = db;
       this.isDirty = false;
-      this.isTempView = viewName == "_slow_view";
+      this.isTempView = viewName == "_temp_view";
       page = this;
 
       var templates = {
@@ -199,7 +199,7 @@
             }
             $("#language").change(updateDirtyState);
           });
-        } else if (viewName == "_slow_view") {
+        } else if (viewName == "_temp_view") {
           page.viewLanguage = $.cookies.get(db.name + ".language", page.viewLanguage);
           page.updateViewEditor(
             $.cookies.get(db.name + ".map", templates[page.viewLanguage]),
@@ -207,6 +207,9 @@
           );
         }
         page.populateLanguagesMenu();
+        if (this.isTempView) {
+          $("#tempwarn").show();
+        }
       }
 
       // Populate the languages dropdown, and listen to selection changes
@@ -266,7 +269,7 @@
           }
         });
         if (!viewName.match(/^_design\//)) {
-          $.each(["_all_docs", "_design_docs", "_slow_view"], function(idx, name) {
+          $.each(["_all_docs", "_design_docs", "_temp_view"], function(idx, name) {
             if (viewName == name) {
               select[0].options[idx].selected = true;
             }
@@ -577,7 +580,7 @@
           $("#switch select")[0].selectedIndex = 0;
           db.allDocs(options);
         } else {
-          if (viewName == "_slow_view") {
+          if (viewName == "_temp_view") {
             $("#viewcode").show().removeClass("collapsed");
             var mapFun = $("#viewcode_map").val();
             $.cookies.set(db.name + ".map", mapFun);
@@ -866,6 +869,10 @@
             }
             return $("<input type='text' spellcheck='false'>");
           },
+          end: function() {
+            $(this).children().remove();
+            $(this).append(_renderValue(doc[row.data("name")]));
+          },
           prepareInput: function(input) {
             if ($(input).is("textarea")) {
               $(input).makeResizable({vertical: true});
@@ -873,10 +880,7 @@
           },
           accept: function(newValue) {
             doc[row.data("name")] = JSON.parse(newValue);
-            $(this).children().remove();
             page.isDirty = true;
-            var value = _renderValue(doc[row.data("name")]);
-            $(this).append(value);
           },
           populate: function(value) {
             return $.futon.formatJSON(doc[row.data("name")]);
@@ -904,7 +908,7 @@
             var list = $("<dl></dl>");
             for (var i in val) {
               $("<dt></dt>").text(i).appendTo(list);
-              $("<dd></dd>").append(_renderValue(val[i])).appendTo(list);
+              $("<dd></dd>").append(render(val[i])).appendTo(list);
             }
             return list;
           } else {

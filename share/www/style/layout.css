@@ -332,6 +332,8 @@ ul.suggest-dropdown li.selected { cursor: pointer; background: Highlight;
 #viewcode.collapsed .top span { background-position: 0 3px; }
 #viewcode.collapsed table, #viewcode.collapsed .bottom { display: none; }
 
+#tempwarn { display: none; font-size: 90%; margin: 0 2em 1.5em; }
+
 /* Database table */
 
 #databases thead th.size, #databases thead th.count, #databases thead th.seq,
@@ -516,4 +518,17 @@ form#replicator p.swap button { background: transparent; border: none;
 form#replicator p.swap button:hover { color: #000; }
 form#replicator p.actions { padding: 1px; clear: left; margin: 0;
   text-align: right;
+}
+
+/* Active tasks */
+
+#interval { color: #666; float: right; font-size: 90%; font-weight: bold;
+  line-height: 16px; padding: 5px;
+}
+#interval input { vertical-align: top; }
+#interval .secs { display: inline-block; width: 2em; text-align: right; }
+
+#status tr.none th { color: #666; font-weight: normal; }
+#status td.object, #status td.pid {
+  font-family: "DejaVu Sans Mono",Monaco,monospace; font-size: 11px;
 }

@@ -261,7 +261,8 @@ db_req(#httpd{method='GET',mochi_req=MochiReq, path_parts=[DbName,<<"_design/",_
     PathFront = "/" ++ couch_httpd:quote(binary_to_list(DbName)) ++ "/",
     RawSplit = regexp:split(MochiReq:get(raw_path),"_design%2F"),
     {ok, [PathFront|PathTail]} = RawSplit,
-    RedirectTo = PathFront ++ "_design/" ++ mochiweb_util:join(PathTail, "%2F"),
+    RedirectTo = couch_httpd:absolute_uri(Req, PathFront ++ "_design/" ++ 
+        mochiweb_util:join(PathTail, "%2F")),
     couch_httpd:send_response(Req, 301, [{"Location", RedirectTo}], <<>>);
 
 db_req(#httpd{path_parts=[_DbName,<<"_design">>,Name]}=Req, Db) ->
@@ -387,20 +388,13 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
     [] ->
         Doc = couch_doc_open(Db, DocId, Rev, Options),
         DiskEtag = couch_httpd:doc_etag(Doc),
-        EtagsToMatch = string:tokens(
-                    couch_httpd:header_value(Req, "If-None-Match", ""), ", "),
-        case lists:member(DiskEtag, EtagsToMatch) of
-        true ->
-            % the client has this in their cache.
-            couch_httpd:send_response(Req, 304, [{"Etag", DiskEtag}], <<>>);
-        false ->
-            Headers =
-            case Doc#doc.meta of
+        couch_httpd:etag_respond(Req, DiskEtag, fun() -> 
+            Headers = case Doc#doc.meta of
             [] -> [{"Etag", DiskEtag}]; % output etag only when we have no meta
             _ -> []
             end,
-            send_json(Req, 200, Headers, couch_doc:to_json_obj(Doc, Options))
-        end;
+            send_json(Req, 200, Headers, couch_doc:to_json_obj(Doc, Options))            
+        end);
     _ ->
         {ok, Results} = couch_db:open_doc_revs(Db, DocId, Revs, Options),
         {ok, Resp} = start_json_response(Req, 200),
