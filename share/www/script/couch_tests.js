@@ -34,9 +34,9 @@ var tests = {
     
     db.createDb();
 
-    // PUT on existing DB should return 409 instead of 500
+    // PUT on existing DB should return 412 instead of 500
     xhr = CouchDB.request("PUT", "/test_suite_db/");
-    T(xhr.status == 409);
+    T(xhr.status == 412);
     if (debug) debugger;
 
     // Get the database info, check the db_name
@@ -140,6 +140,18 @@ var tests = {
     
     // make sure we can still open
     T(db.open(existingDoc._id, {rev: existingDoc._rev}) != null);
+    
+    // test that the POST response has a Location header
+    var xhr = CouchDB.request("POST", "/test_suite_db", {
+      body: JSON.stringify({"foo":"bar"})
+    });
+    var resp = JSON.parse(xhr.responseText);
+    T(resp.ok);
+    var loc = xhr.getResponseHeader("Location");
+    T(loc, "should have a Location header");
+    var locs = loc.split('/');
+    T(locs[4] == resp.id);
+    T(locs[3] == "test_suite_db");    
   },
   
   delayed_commits: function(debug) {
@@ -431,7 +443,7 @@ var tests = {
     var xhr = CouchDB.request("COPY", "/test_suite_db/doc_to_be_copied", {
         headers: {"Destination":"doc_to_be_overwritten"}
     });
-    T(xhr.status == 412); // conflict
+    T(xhr.status == 409); // conflict
 
     var rev = db.open("doc_to_be_overwritten")._rev;
     var xhr = CouchDB.request("COPY", "/test_suite_db/doc_to_be_copied", {
@@ -565,9 +577,8 @@ var tests = {
     }
 
     // Check _all_docs with descending=true again (now that there are many docs)
-    // this fails, see COUCHDB-109
-    // var desc = db.allDocs({descending:true});
-    // T(desc.total_rows == desc.rows.length);
+    var desc = db.allDocs({descending:true});
+    T(desc.total_rows == desc.rows.length);
   },
 
   reduce: function(debug) {
@@ -946,7 +957,7 @@ var tests = {
     
     // test without rev, should fail
     var xhr = CouchDB.request("DELETE", "/test_suite_db/bin_doc2/foo2.txt");
-    T(xhr.status == 412);
+    T(xhr.status == 409);
 
     // test with rev, should not fail
     var xhr = CouchDB.request("DELETE", "/test_suite_db/bin_doc2/foo2.txt?rev=" + rev);
@@ -970,7 +981,7 @@ var tests = {
       headers:{"Content-Type":"text/plain;charset=utf-8"},
       body:bin_data
     });
-    T(xhr.status == 412);
+    T(xhr.status == 409);
 
     var xhr = CouchDB.request("PUT", "/test_suite_db/bin_doc3/attachment.txt?rev=" + rev, {
       headers:{"Content-Type":"text/plain;charset=utf-8"},
@@ -1067,7 +1078,7 @@ var tests = {
         headers:{"Content-Type":"text/plain;charset=utf-8"},
         body:"Just some text"
       });
-      T(xhr.status == 412);    
+      T(xhr.status == 409);    
 
       var xhr = CouchDB.request("PUT", "/"+dbName+"/bin_doc/foo/bar2.txt?rev=" + binAttDoc._rev, {
         body:"This is no base64 encoded text",
@@ -1136,7 +1147,7 @@ var tests = {
         headers:{"Content-Type":"text/plain;charset=utf-8"},
         body:"Just some text"
       });
-      T(xhr.status == 412);    
+      T(xhr.status == 409);    
 
       var xhr = CouchDB.request("PUT", "/"+dbName+"/_design%2Fbin_doc/foo/bar2.txt?rev=" + binAttDoc._rev, {
         body:"This is no base64 encoded text",
@@ -2280,7 +2291,7 @@ var tests = {
     xhr = CouchDB.request("PUT", "/test_suite_db/1", {
       body: "{}"
     });
-    T(xhr.status == 412)
+    T(xhr.status == 409)
 
     // verify get w/Etag
     xhr = CouchDB.request("GET", "/test_suite_db/1", {
@@ -2296,7 +2307,7 @@ var tests = {
     xhr = CouchDB.request("DELETE", "/test_suite_db/1", {
       headers: {"if-match": etagOld}
     });
-    T(xhr.status == 412);
+    T(xhr.status == 409);
 
     //now do it for real
     xhr = CouchDB.request("DELETE", "/test_suite_db/1", {
