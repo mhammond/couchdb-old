@@ -32,7 +32,7 @@ var tests = {
     // bug COUCHDB-100: DELETE on non-existent DB returns 500 instead of 404
     db.deleteDb();
     
-    db.createDb();
+db.createDb();
 
     // PUT on existing DB should return 412 instead of 500
     xhr = CouchDB.request("PUT", "/test_suite_db/");
@@ -2677,10 +2677,14 @@ var tests = {
         }
       },
       lists: {
-        simpleForm: stringFun(function(head, row, req) {
+        simpleForm: stringFun(function(head, row, req, row_info) {
           if (row) {
             // we ignore headers on rows and tail
-            return {body : '\n<li>Key: '+row.key+' Value: '+row.value+'</li>'};
+            return {
+                    body : '\n<li>Key: '+row.key
+                    +' Value: '+row.value
+                    +' LineNo: '+row_info.row_number+'</li>'
+            };
           } else if (head) {
             // we return an object (like those used by external and show)
             // so that we can specify headers
@@ -2692,10 +2696,12 @@ var tests = {
             };
           } else {
             // tail
-            return {body : '</ul>'};
+            return {body : '</ul>'+
+                '<p>FirstKey: '+row_info.first_key+ 
+                ' LastKey: '+row_info.prev_key+'</p>'};
           }
         }),
-        acceptSwitch: stringFun(function(head, row, req) {
+        acceptSwitch: stringFun(function(head, row, req, row_info) {
           return respondWith(req, {
             html : function() {
               // If you're outputting text and you're not setting
@@ -2704,9 +2710,11 @@ var tests = {
                 return "HTML <ul>";
               } else if (row) {
                 return '\n<li>Key: '
-                  +row.key+' Value: '+row.value+'</li>';
+                  +row.key+' Value: '+row.value
+                  +' LineNo: '+row_info.row_number+'</li>';
               } else { // tail
-                return "</ul>";
+                return '</ul>';
+
               }
             },
             xml : function() {
@@ -2747,12 +2755,23 @@ var tests = {
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(/Key: 1/.test(xhr.responseText));
-    
+    T(/LineNo: 0/.test(xhr.responseText));
+    T(/LineNo: 5/.test(xhr.responseText));
+    T(/FirstKey: 0/.test(xhr.responseText));
+    T(/LastKey: 9/.test(xhr.responseText));
+
+
+    var lines = xhr.responseText.split('\n');
+    T(/LineNo: 5/.test(lines[6]));
+
     // get with query params
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=3");
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(!(/Key: 1/.test(xhr.responseText)));
+    T(/FirstKey: 3/.test(xhr.responseText));
+    T(/LastKey: 9/.test(xhr.responseText));
+
     
     // with 0 rows
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=30");
@@ -2964,7 +2983,8 @@ var tests = {
     
     // test that settings can be altered
     xhr = CouchDB.request("PUT", "/_config/test/foo",{
-      body : JSON.stringify("bar")
+      body : JSON.stringify("bar"),
+      headers: {"X-Couch-Persist": "false"}
     });
     T(xhr.status == 200);
     xhr = CouchDB.request("GET", "/_config/test");
