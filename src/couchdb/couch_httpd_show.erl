@@ -75,7 +75,7 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
     #view_query_args{
         stale = Stale,
         reduce = Reduce
-    } = QueryArgs = couch_httpd_view:parse_view_query(Req),
+    } = QueryArgs = couch_httpd_view:parse_view_query(Req, nil, nil, true),
     case couch_view:get_map_view(Db, DesignId, ViewName, Stale) of
     {ok, View} ->    
         output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs);
@@ -127,13 +127,17 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
         JsonResp = couch_query_servers:render_list_row(QueryServer, 
             Req, Db2, {{Key, DocId}, Value}),
         #extern_resp_args{
+            stop = StopIter,
             data = RowBody
         } = couch_httpd_external:parse_external_response(JsonResp),
         RowFront2 = case RowFront of
         nil -> [];
         _ -> RowFront
         end,
-        send_chunk(Resp, RowFront2 ++ binary_to_list(RowBody))
+        case StopIter of
+        true -> stop;
+        _ -> send_chunk(Resp, RowFront2 ++ binary_to_list(RowBody))
+        end
     end,
     
     FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, Db, RowCount,

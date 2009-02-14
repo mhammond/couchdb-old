@@ -457,20 +457,33 @@ db.createDb();
   },
 
   uuids: function(debug) {
+    var testHashBustingHeaders = function(xhr) {
+      T(xhr.getResponseHeader("Cache-Control").match(/no-cache/));
+      T(xhr.getResponseHeader("Pragma") == "no-cache");
+      
+      var currentTime = new Date();
+      var expiresHeader = Date.parse(xhr.getResponseHeader("Expires"));
+      var dateHeader = Date.parse(xhr.getResponseHeader("Date")); 
+      
+      T(expiresHeader < currentTime);
+      T(currentTime - dateHeader < 3000);
+    };
+      
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
     db.createDb();
     if (debug) debugger;
     
     // a single UUID without an explicit count
-    var xhr = CouchDB.request("POST", "/_uuids");
+    var xhr = CouchDB.request("GET", "/_uuids");
     T(xhr.status == 200);
     var result = JSON.parse(xhr.responseText);
     T(result.uuids.length == 1);
     var first = result.uuids[0];
+    testHashBustingHeaders(xhr);
 
     // a single UUID with an explicit count
-    xhr = CouchDB.request("POST", "/_uuids?count=1");
+    xhr = CouchDB.request("GET", "/_uuids?count=1");
     T(xhr.status == 200);
     result = JSON.parse(xhr.responseText);
     T(result.uuids.length == 1);
@@ -478,7 +491,7 @@ db.createDb();
     T(first != second);
 
     // no collisions with 1,000 UUIDs
-    xhr = CouchDB.request("POST", "/_uuids?count=1000");
+    xhr = CouchDB.request("GET", "/_uuids?count=1000");
     T(xhr.status == 200);
     result = JSON.parse(xhr.responseText);
     T( result.uuids.length == 1000 );
@@ -489,7 +502,9 @@ db.createDb();
       seen[id] = 1;
     }
     
-    // check our library
+    // ensure we return a 405 on POST
+    xhr = CouchDB.request("POST", "/_uuids?count=1000");
+    T(xhr.status == 405);
   },
   
   bulk_docs: function(debug) {
@@ -1480,6 +1495,49 @@ db.createDb();
     restartServer();
     T(db.open(designDoc._id) == null);
     T(db.view("test/no_docs") == null);
+  },
+
+  invalid_docids: function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+
+    // Test _local explicitly first.
+    T(db.save({"_id": "_local/foo"}).ok);
+    T(db.open("_local/foo")._id == "_local/foo");
+    
+    //Test non-string
+    try {
+      db.save({"_id": 1});
+      T(1 == 0);
+    } catch(e) {
+        T(db.last_req.status == 400);
+        T(e.error == "invalid_doc");
+    }
+
+    // Test invalid _prefix
+    try {
+      db.save({"_id": "_invalid"});
+      T(1 == 0);
+    } catch(e) {
+        T(db.last_req.status == 400);
+        T(e.error == "invalid_doc");
+    }
+
+    // Test _bulk_docs explicitly.
+    var docs = [{"_id": "_design/foo"}, {"_id": "_local/bar"}];
+    T(db.bulkSave(docs).ok);
+    docs.forEach(function(d) {T(db.open(d._id)._id == d._id);});
+
+    docs = [{"_id": "_invalid"}];
+    try {
+      db.bulkSave(docs);
+      T(1 == 0);
+    } catch(e) {
+        T(db.last_req.status == 400);
+        T(e.error == "invalid_doc");
+    }
   },
 
   view_collation: function(debug) {
@@ -2737,6 +2795,34 @@ db.createDb();
               }
             }
           })
+        }),
+        qsParams: stringFun(function(head, row, req, row_info) {
+          if(head) return {body: req.query.foo};
+          else return {body: "\n"};
+        }),
+        stopIter: stringFun(function(head, row, req, row_info) {
+          if(head) {
+            return {body: "head"};
+          } else if(row) {
+            if(row_info.row_number > 2) return {stop: true};
+            return {body: " " + row_info.row_number};
+          } else {
+            return {body: " tail"};
+          }
+        }),
+        stopIter2: stringFun(function(head, row, req, row_info) {
+          return respondWith(req, {
+            html: function() {
+              if(head) {
+                return "head";
+              } else if(row) {
+                if(row_info.row_number > 2) return {stop: true};
+                return " " + row_info.row_number;
+              } else {
+                return " tail";
+              }
+            }
+          });
         })
       }
     };
@@ -2804,6 +2890,19 @@ db.createDb();
     T(xhr.getResponseHeader("Content-Type") == "application/xml");
     T(xhr.responseText.match(/XML/));
     T(xhr.responseText.match(/entry/));
+
+    // now with extra qs params
+    xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/qsParams/basicView?foo=blam");
+    T(xhr.responseText.match(/blam/));
+    
+
+    // aborting iteration
+    xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/stopIter/basicView");
+    T(xhr.responseText.match(/^head 0 1 2 tail$/));
+    xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/stopIter2/basicView");
+    T(xhr.responseText.match(/^head 0 1 2 tail$/));
+
+
   },
 
   compact: function(debug) {
