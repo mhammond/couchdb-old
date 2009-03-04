@@ -24,14 +24,18 @@
     
 handle_doc_show_req(#httpd{
         method='GET',
-        path_parts=[_, _, DesignName, ShowName, Docid]
+        path_parts=[_, _, DesignName, ShowName, DocId]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ShowSrc = get_nested_json_value({Props}, [<<"shows">>, ShowName]),
-    Doc = couch_httpd_db:couch_doc_open(Db, Docid, [], []),
-    send_doc_show_response(Lang, ShowSrc, Doc, Req, Db);
+    Doc = try couch_httpd_db:couch_doc_open(Db, DocId, [], []) of
+        FoundDoc -> FoundDoc
+    catch
+        _ -> nil
+    end,
+    send_doc_show_response(Lang, ShowSrc, DocId, Doc, Req, Db);
 
 handle_doc_show_req(#httpd{
         method='GET',
@@ -41,7 +45,7 @@ handle_doc_show_req(#httpd{
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ShowSrc = get_nested_json_value({Props}, [<<"shows">>, ShowName]),
-    send_doc_show_response(Lang, ShowSrc, nil, Req, Db);
+    send_doc_show_response(Lang, ShowSrc, nil, nil, Req, Db);
 
 handle_doc_show_req(#httpd{method='GET'}=Req, _Db) ->
     send_error(Req, 404, <<"show_error">>, <<"Invalid path.">>);
@@ -55,6 +59,9 @@ handle_view_list_req(#httpd{method='GET',path_parts=[_, _, DesignName, ListName,
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ListSrc = get_nested_json_value({Props}, [<<"lists">>, ListName]),
     send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db);
+
+handle_view_list_req(#httpd{method='GET'}=Req, _Db) ->
+    send_error(Req, 404, <<"list_error">>, <<"Invalid path.">>);
 
 handle_view_list_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD").
@@ -71,7 +78,6 @@ get_nested_json_value(_NotJSONObj, _) ->
     throw({not_found, json_mismatch}).
 
 send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
-    % TODO add etags when we get view etags
     #view_query_args{
         stale = Stale,
         reduce = Reduce
@@ -124,7 +130,6 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
                 headers = ExtHeaders
             } = couch_httpd_external:parse_external_response(JsonResp),
             JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
-            % TODO use the Etag
             {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
             {ok, Resp, binary_to_list(BeginBody)}
         end,
@@ -181,53 +186,56 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
     Hlist = mochiweb_headers:to_list(Headers),
     Accept = proplists:get_value('Accept', Hlist),
     CurrentEtag = couch_httpd_view:view_group_etag(Group, {Lang, ListSrc, Accept}),
-
-    StartListRespFun = fun(Req2, _Etag, _, _) ->
-        JsonResp = couch_query_servers:render_reduce_head(QueryServer, 
-            Req2, Db),
-        #extern_resp_args{
-            code = Code,
-            data = BeginBody,
-            ctype = CType,
-            headers = ExtHeaders
-        } = couch_httpd_external:parse_external_response(JsonResp),
-        JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
-        {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
-        {ok, Resp, binary_to_list(BeginBody)}
-    end,
-    
-    SendListRowFun = fun(Resp, {Key, Value}, RowFront) ->
-        JsonResp = couch_query_servers:render_reduce_row(QueryServer, 
-            Req, Db, {Key, Value}),
-        #extern_resp_args{
-            stop = StopIter,
-            data = RowBody
-        } = couch_httpd_external:parse_external_response(JsonResp),
-        RowFront2 = case RowFront of
-        nil -> [];
-        _ -> RowFront
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
+        StartListRespFun = fun(Req2, _Etag, _, _) ->
+            JsonResp = couch_query_servers:render_reduce_head(QueryServer, 
+                Req2, Db),
+            JsonResp2 = apply_etag(JsonResp, CurrentEtag),
+            #extern_resp_args{
+                code = Code,
+                data = BeginBody,
+                ctype = CType,
+                headers = ExtHeaders
+            } = couch_httpd_external:parse_external_response(JsonResp2),
+            JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
+            {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
+            {ok, Resp, binary_to_list(BeginBody)}
         end,
-        case StopIter of
-        true -> stop;
-        _ ->
-            Chunk = RowFront2 ++ binary_to_list(RowBody),
-            case Chunk of
-                [] -> {ok, Resp};
-                _ -> send_chunk(Resp, Chunk)
-            end
-        end
-    end,
     
-    {ok, GroupRowsFun, RespFun} = couch_httpd_view:make_reduce_fold_funs(Req, GroupLevel, QueryArgs, CurrentEtag, 
-    #reduce_fold_helper_funs{
-        start_response = StartListRespFun,
-        send_row = SendListRowFun
-    }),
-    FoldAccInit = {Limit, SkipCount, undefined, []},
-    FoldResult = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId},
-        {EndKey, EndDocId}, GroupRowsFun, RespFun,
-        FoldAccInit),
-    finish_list(Req, Db, QueryServer, CurrentEtag, FoldResult, StartListRespFun, null).
+        SendListRowFun = fun(Resp, {Key, Value}, RowFront) ->
+            JsonResp = couch_query_servers:render_reduce_row(QueryServer, 
+                Req, Db, {Key, Value}),
+            #extern_resp_args{
+                stop = StopIter,
+                data = RowBody
+            } = couch_httpd_external:parse_external_response(JsonResp),
+            RowFront2 = case RowFront of
+            nil -> [];
+            _ -> RowFront
+            end,
+            case StopIter of
+            true -> stop;
+            _ ->
+                Chunk = RowFront2 ++ binary_to_list(RowBody),
+                case Chunk of
+                    [] -> {ok, Resp};
+                    _ -> send_chunk(Resp, Chunk)
+                end
+            end
+        end,
+    
+        {ok, GroupRowsFun, RespFun} = couch_httpd_view:make_reduce_fold_funs(Req, 
+            GroupLevel, QueryArgs, CurrentEtag, 
+            #reduce_fold_helper_funs{
+                start_response = StartListRespFun,
+                send_row = SendListRowFun
+            }),
+        FoldAccInit = {Limit, SkipCount, undefined, []},
+        FoldResult = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId},
+            {EndKey, EndDocId}, GroupRowsFun, RespFun,
+            FoldAccInit),
+        finish_list(Req, Db, QueryServer, CurrentEtag, FoldResult, StartListRespFun, null)
+    end).
 
 finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows) ->
     case FoldResult of
@@ -253,7 +261,7 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
         throw(Error)
     end.
 
-send_doc_show_response(Lang, ShowSrc, nil, #httpd{mochi_req=MReq}=Req, Db) ->
+send_doc_show_response(Lang, ShowSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db) ->
     % compute etag with no doc
     Headers = MReq:get(headers),
     Hlist = mochiweb_headers:to_list(Headers),
@@ -261,12 +269,13 @@ send_doc_show_response(Lang, ShowSrc, nil, #httpd{mochi_req=MReq}=Req, Db) ->
     CurrentEtag = couch_httpd:make_etag({Lang, ShowSrc, nil, Accept}),
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
         ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 
-            nil, Req, Db),
+            DocId, nil, Req, Db),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
     end);
 
-send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
+send_doc_show_response(Lang, ShowSrc, DocId, #doc{revs=[DocRev|_]}=Doc, 
+    #httpd{mochi_req=MReq}=Req, Db) ->
     % calculate the etag
     Headers = MReq:get(headers),
     Hlist = mochiweb_headers:to_list(Headers),
@@ -275,7 +284,7 @@ send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_re
     % We know our etag now    
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
         ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 
-            Doc, Req, Db),
+            DocId, Doc, Req, Db),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
     end).
