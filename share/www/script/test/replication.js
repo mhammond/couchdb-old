@@ -72,6 +72,7 @@ couchTests.replication = function(debug) {
       },
     
      deletes_test: new function () {
+        // make sure deletes are replicated
         this.init = function(dbA, dbB) {
           T(dbA.save({_id:"foo1",value:"a"}).ok);
         };
@@ -87,6 +88,27 @@ couchTests.replication = function(debug) {
         this.afterAB2 = function(dbA, dbB) {
           T(dbA.open("foo1") == null);
           T(dbB.open("foo1") == null);
+        };
+      },
+      
+      deleted_test : new function() {
+        // docs created and deleted on a single node are also replicated
+        this.init = function(dbA, dbB) {
+          T(dbA.save({_id:"del1",value:"a"}).ok);
+          var docA = dbA.open("del1");
+          dbA.deleteDoc(docA);
+        };
+        
+        this.afterAB1 = function(dbA, dbB) {
+          var rows = dbB.allDocsBySeq().rows;
+          var rowCnt = 0;
+          for (var i=0; i < rows.length; i++) {
+            if (rows[i].id == "del1") {
+              rowCnt += 1;
+              T(rows[i].value.deleted == true);
+            }
+          };
+          T(rowCnt == 1);
         };
       },
       
@@ -128,6 +150,16 @@ couchTests.replication = function(debug) {
               }
             }
           });
+          // make sure on design docs as well
+          dbA.save({
+            _id:"_design/with_bin",
+            _attachments:{
+              "foo.txt": {
+                "type":"base64",
+                "data": "VGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHRleHQ="
+              }
+            }
+          });
         };
         
         this.afterAB1 = function(dbA, dbB) {
@@ -135,6 +167,13 @@ couchTests.replication = function(debug) {
           T(xhr.responseText == "This is a base64 encoded text")
 
           xhr = CouchDB.request("GET", "/test_suite_db_b/bin_doc/foo.txt");
+          T(xhr.responseText == "This is a base64 encoded text")
+
+          // and the design-doc
+          xhr = CouchDB.request("GET", "/test_suite_db_a/_design/with_bin/foo.txt");
+          T(xhr.responseText == "This is a base64 encoded text")
+
+          xhr = CouchDB.request("GET", "/test_suite_db_b/_design/with_bin/foo.txt");
           T(xhr.responseText == "This is a base64 encoded text")
         };
       },
