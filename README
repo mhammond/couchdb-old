@@ -69,8 +69,7 @@ Debian-based (inc. Ubuntu) Systems
 
 You can install the dependencies by running:
 
-    apt-get install build-essential erlang libicu38 libicu-dev libmozjs-dev \
-                    libcurl4-openssl-dev
+    apt-get install build-essential erlang libicu-dev libmozjs-dev libcurl4-openssl-dev
 
 If you get an error regarding the `libicu38` or `libicu-dev` be sure to check
 the version used by your distribution (using `apt-cache search libicu`) and
@@ -150,13 +149,15 @@ Change the ownership of the Apache CouchDB directories by running:
 
     chown -R couchdb:couchdb /usr/local/etc/couchdb
     chown -R couchdb:couchdb /usr/local/var/lib/couchdb
-    chown -R root:couchdb /usr/local/var/log/couchdb
+    chown -R couchdb:couchdb /usr/local/var/log/couchdb
+    chown -R couchdb:couchdb /usr/local/var/run/couchdb
 
 Change the permission of the Apache CouchDB directories by running:
 
     chmod -R 0770 /usr/local/etc/couchdb
     chmod -R 0770 /usr/local/var/lib/couchdb
     chmod -R 0770 /usr/local/var/log/couchdb
+    chmod -R 0770 /usr/local/var/run/couchdb
 
 Running Manually
 ^^^^^^^^^^^^^^^^
