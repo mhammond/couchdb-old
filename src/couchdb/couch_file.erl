@@ -269,7 +269,6 @@ init_status_error(ReturnPid, Ref, Error) ->
 % server functions
 
 init({Filepath, Options, ReturnPid, Ref}) ->
-    process_flag(trap_exit, true),
     case lists:member(create, Options) of
     true ->
         filelib:ensure_dir(Filepath),
@@ -285,14 +284,14 @@ init({Filepath, Options, ReturnPid, Ref}) ->
                 true ->
                     {ok, 0} = file:position(Fd, 0),
                     ok = file:truncate(Fd),
-                    catch couch_stats_collector:increment({couchdb, open_os_files}),
+                    track_stats(),
                     {ok, Fd};
                 false ->
                     ok = file:close(Fd),
                     init_status_error(ReturnPid, Ref, file_exists)
                 end;
             false ->
-                catch couch_stats_collector:increment({couchdb, open_os_files}),
+                track_stats(),
                 {ok, Fd}
             end;
         Error ->
@@ -304,7 +303,7 @@ init({Filepath, Options, ReturnPid, Ref}) ->
         {ok, Fd_Read} ->
             {ok, Fd} = file:open(Filepath, [read, write, raw, binary]),
             ok = file:close(Fd_Read),
-            catch couch_stats_collector:increment({couchdb, open_os_files}),
+            track_stats(),
             {ok, Fd};
         Error ->
             init_status_error(ReturnPid, Ref, Error)
@@ -313,9 +312,20 @@ init({Filepath, Options, ReturnPid, Ref}) ->
 
 
 terminate(_Reason, _Fd) ->
-    catch couch_stats_collector:decrement({couchdb, open_os_files}),
     ok.
 
+track_stats() ->
+    case (catch couch_stats_collector:increment({couchdb, open_os_files})) of
+    ok ->
+        Self = self(),
+        spawn(
+            fun() ->
+                erlang:monitor(process, Self),
+                receive {'DOWN', _, _, _, _} -> ok end,
+                couch_stats_collector:decrement({couchdb, open_os_files})
+            end);
+     _ -> ok
+    end.
 
 handle_call({pread, Pos, Bytes}, _From, Fd) ->
     {reply, file:pread(Fd, Pos, Bytes), Fd};
