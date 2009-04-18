@@ -414,7 +414,8 @@ function runRenderFunction(renderFun, args) {
   } catch(e) {
     log("function raised error: "+e.toString());
     log("stacktrace: "+e.stack);
-    respond({error:"render_error",reason:e});
+    var errorMessage = "JavaScript function raised error: "+e.toString()+"\nSee CouchDB logfile for stacktrace.";
+    respond({error:"render_error",reason:errorMessage});
   }
 };
 
