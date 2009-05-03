@@ -18,6 +18,7 @@
 -export([get_stale_type/1, get_reduce_type/1, parse_view_params/4]).
 -export([make_view_fold_fun/6, finish_view_fold/3, view_row_obj/3]).
 -export([view_group_etag/1, view_group_etag/2, make_reduce_fold_funs/5]).
+-export([design_doc_view/5]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,send_chunk/2,
@@ -78,11 +79,6 @@ handle_view_req(Req, _Db) ->
 
 handle_temp_view_req(#httpd{method='POST'}=Req, Db) ->
     couch_stats_collector:increment({httpd, temporary_view_reads}),
-    case couch_httpd:primary_header_value(Req, "content-type") of
-        undefined -> ok;
-        "application/json" -> ok;
-        Else -> throw({incorrect_mime_type, Else})
-    end,
     {Props} = couch_httpd:json_body(Req),
     Language = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     {DesignOptions} = proplists:get_value(<<"options">>, Props, {[]}),
