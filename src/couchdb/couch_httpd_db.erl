@@ -102,19 +102,34 @@ db_req(#httpd{method='GET',path_parts=[_DbName]}=Req, Db) ->
 db_req(#httpd{method='POST',path_parts=[DbName]}=Req, Db) ->
     Doc = couch_doc:from_json_obj(couch_httpd:json_body(Req)),
     DocId = couch_util:new_uuid(),
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId}, []),
-    DocUrl = absolute_uri(Req, 
-        binary_to_list(<<"/",DbName/binary,"/",DocId/binary>>)),
-    send_json(Req, 201, [{"Location", DocUrl}], {[
-        {ok, true},
-        {id, DocId},
-        {rev, couch_doc:rev_to_str(NewRev)}
-    ]});
+    case couch_httpd:qs_value(Req, "batch") of
+    "ok" ->
+        % batch
+        ok = couch_batch_save:eventually_save_doc(Db#db.name,
+                Doc#doc{id=DocId}, Db#db.user_ctx),
+        send_json(Req, 202, [], {[
+            {ok, true},
+            {id, DocId}
+        ]});
+    _Normal ->
+        % normal
+        {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId}, []),
+        DocUrl = absolute_uri(Req, 
+            binary_to_list(<<"/",DbName/binary,"/",DocId/binary>>)),
+        send_json(Req, 201, [{"Location", DocUrl}], {[
+            {ok, true},
+            {id, DocId},
+            {rev, couch_doc:rev_to_str(NewRev)}
+        ]})
+    end;
+
 
 db_req(#httpd{path_parts=[_DbName]}=Req, _Db) ->
     send_method_not_allowed(Req, "DELETE,GET,HEAD,POST");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_ensure_full_commit">>]}=Req, Db) ->
+    % make the batch save
+    committed = couch_batch_save:commit_now(Db#db.name, Db#db.user_ctx),
     {ok, DbStartTime} = couch_db:ensure_full_commit(Db),
     send_json(Req, 201, {[
             {ok, true},
@@ -527,9 +542,21 @@ db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
 
 db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     couch_doc:validate_docid(DocId),
-    Location = absolute_uri(Req, "/" ++ ?b2l(Db#db.name) ++ "/" ++ ?b2l(DocId)),
-    update_doc(Req, Db, DocId, couch_httpd:json_body(Req),
-      [{"Location", Location}]);
+    Json = couch_httpd:json_body(Req),
+    case couch_httpd:qs_value(Req, "batch") of
+    "ok" ->
+        % batch
+        Doc = couch_doc_from_req(Req, DocId, Json),
+        ok = couch_batch_save:eventually_save_doc(Db#db.name, Doc, Db#db.user_ctx),
+        send_json(Req, 202, [], {[
+            {ok, true},
+            {id, DocId}
+        ]});
+    _Normal ->
+        % normal
+        Location = absolute_uri(Req, "/" ++ ?b2l(Db#db.name) ++ "/" ++ ?b2l(DocId)),
+        update_doc(Req, Db, DocId, Json, [{"Location", Location}])
+    end;
 
 db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
     SourceRev =
@@ -565,7 +592,25 @@ update_doc(Req, Db, DocId, Json) ->
     update_doc(Req, Db, DocId, Json, []).
 
 update_doc(Req, Db, DocId, Json, Headers) ->
-    #doc{deleted=Deleted} = Doc = couch_doc:from_json_obj(Json),
+    #doc{deleted=Deleted} = Doc = couch_doc_from_req(Req, DocId, Json),
+    
+    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
+    "true" ->
+        Options = [full_commit];
+    _ ->
+        Options = []
+    end,
+    {ok, NewRev} = couch_db:update_doc(Db, Doc, Options),
+    NewRevStr = couch_doc:rev_to_str(NewRev),
+    ResponseHeaders = [{"Etag", <<"\"", NewRevStr/binary, "\"">>}] ++ Headers,
+    send_json(Req, if Deleted -> 200; true -> 201 end,
+        ResponseHeaders, {[
+            {ok, true},
+            {id, DocId},
+            {rev, NewRevStr}]}).
+
+couch_doc_from_req(Req, DocId, Json) ->
+    Doc = couch_doc:from_json_obj(Json),
     validate_attachment_names(Doc),
     ExplicitDocRev =
     case Doc#doc.revs of
@@ -578,21 +623,8 @@ update_doc(Req, Db, DocId, Json, Headers) ->
     {Pos, Rev} ->
         Revs = {Pos, [Rev]}
     end,
+    Doc#doc{id=DocId, revs=Revs}.
     
-    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
-    "true" ->
-        Options = [full_commit];
-    _ ->
-        Options = []
-    end,
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=Revs}, Options),
-    NewRevStr = couch_doc:rev_to_str(NewRev),
-    ResponseHeaders = [{"Etag", <<"\"", NewRevStr/binary, "\"">>}] ++ Headers,
-    send_json(Req, if Deleted -> 200; true -> 201 end,
-        ResponseHeaders, {[
-            {ok, true},
-            {id, DocId},
-            {rev, NewRevStr}]}).
 
 % Useful for debugging
 % couch_doc_open(Db, DocId) ->
@@ -620,33 +652,36 @@ couch_doc_open(Db, DocId, Rev, Options) ->
 
 db_attachment_req(#httpd{method='GET'}=Req, Db, DocId, FileNameParts) ->
     FileName = list_to_binary(mochiweb_util:join(lists:map(fun binary_to_list/1, FileNameParts),"/")),
-    case couch_db:open_doc(Db, DocId, []) of
-    {ok, #doc{attachments=Attachments}=Doc} ->
-        case proplists:get_value(FileName, Attachments) of
-        undefined ->
-            throw({not_found, "Document is missing attachment"});
-        {Type, Bin} ->
-            {ok, Resp} = start_chunked_response(Req, 200, [
-                {"ETag", couch_httpd:doc_etag(Doc)},
-                {"Cache-Control", "must-revalidate"},
-                {"Content-Type", binary_to_list(Type)}%,
-                % My understanding of http://www.faqs.org/rfcs/rfc2616.html
-                % says that we should not use Content-Length with a chunked
-                % encoding. Turning this off makes libcurl happy, but I am
-                % open to discussion.
-                % {"Content-Length", integer_to_list(couch_doc:bin_size(Bin))}
-                ]),
-            couch_doc:bin_foldl(Bin,
-                fun(BinSegment, []) ->
-                    send_chunk(Resp, BinSegment),
-                    {ok, []}
-                end,
-                []
-            ),
-            send_chunk(Resp, "")
-        end;
-    Error ->
-        throw(Error)
+    #doc_query_args{
+        rev=Rev, 
+        options=Options
+    } = parse_doc_query(Req),
+    #doc{
+        attachments=Attachments
+    } = Doc = couch_doc_open(Db, DocId, Rev, Options),
+    
+    case proplists:get_value(FileName, Attachments) of
+    undefined ->
+        throw({not_found, "Document is missing attachment"});
+    {Type, Bin} ->
+        {ok, Resp} = start_chunked_response(Req, 200, [
+            {"ETag", couch_httpd:doc_etag(Doc)},
+            {"Cache-Control", "must-revalidate"},
+            {"Content-Type", binary_to_list(Type)}%,
+            % My understanding of http://www.faqs.org/rfcs/rfc2616.html
+            % says that we should not use Content-Length with a chunked
+            % encoding. Turning this off makes libcurl happy, but I am
+            % open to discussion.
+            % {"Content-Length", integer_to_list(couch_doc:bin_size(Bin))}
+            ]),
+        couch_doc:bin_foldl(Bin,
+            fun(BinSegment, []) ->
+                send_chunk(Resp, BinSegment),
+                {ok, []}
+            end,
+            []
+        ),
+        send_chunk(Resp, "")
     end;
 
 
