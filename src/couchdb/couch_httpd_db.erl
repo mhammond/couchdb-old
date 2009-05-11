@@ -14,7 +14,8 @@
 -include("couch_db.hrl").
 
 -export([handle_request/1, handle_compact_req/2, handle_design_req/2, 
-    db_req/2, couch_doc_open/4,handle_changes_req/2]).
+    db_req/2, couch_doc_open/4,handle_changes_req/2,
+    update_doc_result_to_json/1, update_doc_result_to_json/2]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
@@ -207,13 +208,7 @@ db_req(#httpd{path_parts=[_,<<"_ensure_full_commit">>]}=Req, _Db) ->
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
     couch_stats_collector:increment({httpd, bulk_requests}),
-    JsonProps =
-    case couch_httpd:json_body(Req) of
-    {Fields} ->
-        Fields;
-    _ ->
-        throw({bad_request, "Body must be a JSON object"})
-    end,
+    {JsonProps} = couch_httpd:json_body_obj(Req),
     DocsArray = proplists:get_value(<<"docs">>, JsonProps),
     case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
     "true" ->
@@ -249,47 +244,26 @@ db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
         case couch_db:update_docs(Db, Docs, Options2) of
         {ok, Results} ->
             % output the results
-            DocResults = lists:zipwith(
-                fun(Doc, {ok, NewRev}) ->
-                    {[{<<"id">>, Doc#doc.id}, {<<"rev">>, couch_doc:rev_to_str(NewRev)}]};
-                (Doc, Error) ->
-                    {_Code, Err, Msg} = couch_httpd:error_info(Error),
-                    % maybe we should add the http error code to the json?
-                    {[{<<"id">>, Doc#doc.id}, {<<"error">>, Err}, {"reason", Msg}]}
-                end,
+            DocResults = lists:zipwith(fun update_doc_result_to_json/2,
                 Docs, Results),
             send_json(Req, 201, DocResults);
         {aborted, Errors} ->
             ErrorsJson = 
-                lists:map(
-                    fun({{Id, Rev}, Error}) ->
-                        {_Code, Err, Msg} = couch_httpd:error_info(Error),
-                        {[{<<"id">>, Id},
-                            {<<"rev">>, couch_doc:rev_to_str(Rev)},
-                            {<<"error">>, Err},
-                            {"reason", Msg}]}
-                    end, Errors),
+                lists:map(fun update_doc_result_to_json/1, Errors),
             send_json(Req, 417, ErrorsJson)
         end;
     false ->
         Docs = [couch_doc:from_json_obj(JsonObj) || JsonObj <- DocsArray],
         {ok, Errors} = couch_db:update_docs(Db, Docs, Options, replicated_changes),
         ErrorsJson = 
-            lists:map(
-                fun({{Id, Rev}, Error}) ->
-                    {_Code, Err, Msg} = couch_httpd:error_info(Error),
-                    {[{<<"id">>, Id},
-                        {<<"rev">>, couch_doc:rev_to_str(Rev)},
-                        {<<"error">>, Err},
-                        {"reason", Msg}]}
-                end, Errors),
+            lists:map(fun update_doc_result_to_json/1, Errors),
         send_json(Req, 201, ErrorsJson)
     end;
 db_req(#httpd{path_parts=[_,<<"_bulk_docs">>]}=Req, _Db) ->
     send_method_not_allowed(Req, "POST");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_purge">>]}=Req, Db) ->
-    {IdsRevs} = couch_httpd:json_body(Req),
+    {IdsRevs} = couch_httpd:json_body_obj(Req),
     IdsRevs2 = [{Id, couch_doc:parse_revs(Revs)} || {Id, Revs} <- IdsRevs],
     
     case couch_db:purge_docs(Db, IdsRevs2) of
@@ -307,19 +281,15 @@ db_req(#httpd{method='GET',path_parts=[_,<<"_all_docs">>]}=Req, Db) ->
     all_docs_view(Req, Db, nil);
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_all_docs">>]}=Req, Db) ->
-    case couch_httpd:json_body(Req) of
-    {Fields} ->
-        case proplists:get_value(<<"keys">>, Fields, nil) of
-        nil ->
-            ?LOG_DEBUG("POST to _all_docs with no keys member.", []),
-            all_docs_view(Req, Db, nil);
-        Keys when is_list(Keys) ->
-            all_docs_view(Req, Db, Keys);
-        _ ->
-            throw({bad_request, "`keys` member must be a array."})
-        end;
+    {Fields} = couch_httpd:json_body_obj(Req),
+    case proplists:get_value(<<"keys">>, Fields, nil) of
+    nil ->
+        ?LOG_DEBUG("POST to _all_docs with no keys member.", []),
+        all_docs_view(Req, Db, nil);
+    Keys when is_list(Keys) ->
+        all_docs_view(Req, Db, Keys);
     _ ->
-        throw({bad_request, "Body must be a JSON object"})
+        throw({bad_request, "`keys` member must be a array."})
     end;
 
 db_req(#httpd{path_parts=[_,<<"_all_docs">>]}=Req, _Db) ->
@@ -382,7 +352,7 @@ db_req(#httpd{path_parts=[_,<<"_all_docs_by_seq">>]}=Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_missing_revs">>]}=Req, Db) ->
-    {JsonDocIdRevs} = couch_httpd:json_body(Req),
+    {JsonDocIdRevs} = couch_httpd:json_body_obj(Req),
     JsonDocIdRevs2 = [{Id, [couch_doc:parse_rev(RevStr) || RevStr <- RevStrs]} || {Id, RevStrs} <- JsonDocIdRevs],
     {ok, Results} = couch_db:get_missing_revs(Db, JsonDocIdRevs2),
     Results2 = [{Id, [couch_doc:rev_to_str(Rev) || Rev <- Revs]} || {Id, Revs} <- Results],
@@ -457,21 +427,21 @@ all_docs_view(Req, Db, Keys) ->
         true -> StartDocId
         end,
         FoldAccInit = {Limit, SkipCount, undefined, []},
-    
-        PassedEndFun = 
-        case Dir of
-        fwd ->
-            fun(ViewKey, _ViewId) ->
-                couch_db_updater:less_docid(EndKey, ViewKey)
-            end;
-        rev->
-            fun(ViewKey, _ViewId) ->
-                couch_db_updater:less_docid(ViewKey, EndKey)
-            end
-        end,
-    
+        
         case Keys of
         nil ->
+            PassedEndFun = 
+            case Dir of
+            fwd ->
+                fun(ViewKey, _ViewId) ->
+                    couch_db_updater:less_docid(EndKey, ViewKey)
+                end;
+            rev->
+                fun(ViewKey, _ViewId) ->
+                    couch_db_updater:less_docid(ViewKey, EndKey)
+                end
+            end,
+            
             FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, CurrentEtag, Db,
                 TotalRowCount, #view_fold_helper_funs{
                     reduce_count = fun couch_db:enum_docs_reduce_to_count/1,
@@ -640,7 +610,7 @@ db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
     case couch_db:update_doc(Db, Doc#doc{id=TargetDocId, revs=TargetRevs}, []) of
     {ok, NewTargetRev} ->
         send_json(Req, 201, [{"Etag", "\"" ++ ?b2l(couch_doc:rev_to_str(NewTargetRev)) ++ "\""}],
-            update_result_to_json({ok, NewTargetRev}));
+            update_doc_result_to_json(TargetDocId, {ok, NewTargetRev}));
     Error ->
         throw(Error)
     end;
@@ -648,11 +618,19 @@ db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
 db_doc_req(Req, _Db, _DocId) ->
     send_method_not_allowed(Req, "DELETE,GET,HEAD,POST,PUT,COPY").
 
-update_result_to_json({ok, NewRev}) ->
-    {[{rev, couch_doc:rev_to_str(NewRev)}]};
-update_result_to_json(Error) ->
+
+update_doc_result_to_json({{Id, Rev}, Error}) ->
+        {_Code, Err, Msg} = couch_httpd:error_info(Error),
+        {[{id, Id}, {rev, couch_doc:rev_to_str(Rev)},
+            {error, Err}, {reason, Msg}]}.
+
+update_doc_result_to_json(#doc{id=DocId}, Result) ->
+    update_doc_result_to_json(DocId, Result);
+update_doc_result_to_json(DocId, {ok, NewRev}) ->
+    {[{id, DocId}, {rev, couch_doc:rev_to_str(NewRev)}]};
+update_doc_result_to_json(DocId, Error) ->
     {_Code, ErrorStr, Reason} = couch_httpd:error_info(Error),
-    {[{error, ErrorStr}, {reason, Reason}]}.
+    {[{id, DocId}, {error, ErrorStr}, {reason, Reason}]}.
 
 
 update_doc(Req, Db, DocId, Json) ->
