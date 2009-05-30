@@ -63,6 +63,12 @@ couchTests.basics = function(debug) {
     var doc = db.open(id, {revs_info:true});
     T(doc._revs_info[0].status == "available");
 
+    // make sure you can do a seq=true option
+    var doc = db.open(id, {local_seq:true});
+    console.log(doc._local_seq)
+    T(doc._local_seq == 1);
+    
+
     // Create some more documents.
     // Notice the use of the ok member on the return result.
     T(db.save({_id:"1",a:2,b:4}).ok);
@@ -133,7 +139,7 @@ couchTests.basics = function(debug) {
 
     // make sure we can still open the old rev of the deleted doc
     T(db.open(existingDoc._id, {rev: existingDoc._rev}) != null);
-
+    console.log("db.info: " + db.info.update_seq),
     // make sure restart works
     T(db.ensureFullCommit().ok);
     restartServer();

@@ -51,18 +51,21 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
     case couch_httpd:qs_value(Req, "continuous", "false") of
     "true" ->
         Self = self(),
-        Notify = couch_db_update_notifier:start_link(
+        {ok, Notify} = couch_db_update_notifier:start_link(
             fun({_, DbName0}) when DbName0 == DbName ->
                 Self ! db_updated;
             (_) ->
                 ok
             end),
+        couch_stats_collector:track_process_count(Self,
+                            {httpd, clients_requesting_changes}),
         try
             keep_sending_changes(Req, Resp, Db, StartSeq, <<"">>)
         after
-            catch couch_db_update_notifier:stop(Notify),
+            couch_db_update_notifier:stop(Notify),
             wait_db_updated(0) % clean out any remaining update messages
         end;
+        
     "false" ->
         {ok, {LastSeq, _Prepend}} = 
                 send_changes(Req, Resp, Db, StartSeq, <<"">>),
@@ -720,12 +723,7 @@ db_attachment_req(#httpd{method='GET'}=Req, Db, DocId, FileNameParts) ->
             % {"Content-Length", integer_to_list(couch_doc:bin_size(Bin))}
             ]),
         couch_doc:bin_foldl(Bin,
-            fun(BinSegment, []) ->
-                send_chunk(Resp, BinSegment),
-                {ok, []}
-            end,
-            []
-        ),
+                fun(BinSegment, _) -> send_chunk(Resp, BinSegment) end,[]),
         send_chunk(Resp, "")
     end;
 
@@ -800,6 +798,9 @@ parse_doc_query(Req) ->
             Args#doc_query_args{options=Options};
         {"revs", "true"} ->
             Options = [revs | Args#doc_query_args.options],
+            Args#doc_query_args{options=Options};
+        {"local_seq", "true"} ->
+            Options = [local_seq | Args#doc_query_args.options],
             Args#doc_query_args{options=Options};
         {"revs_info", "true"} ->
             Options = [revs_info | Args#doc_query_args.options],
