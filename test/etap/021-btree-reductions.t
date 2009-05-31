@@ -2,10 +2,11 @@
 %% -*- erlang -*-
 %%! -pa ./src/couchdb -sasl errlog_type error -boot start_sasl -noshell
 
--define(FILE_NAME, "./t/temp.021").
--define(ROWS, 1000).
+filename() -> "./test/etap/temp.021".
+rows() -> 1000.
 
 main(_) ->
+    code:add_pathz("src/couchdb"),
     etap:plan(8),
     case (catch test()) of
         ok ->
@@ -22,7 +23,7 @@ test()->
         (rereduce, Reds) -> lists:sum(Reds)
     end,
     
-    {ok, Fd} = couch_file:open(?FILE_NAME, [create,overwrite]),
+    {ok, Fd} = couch_file:open(filename(), [create,overwrite]),
     {ok, Btree} = couch_btree:open(nil, Fd, [{reduce, ReduceFun}]),
     
     % Create a list, of {"even", Value} or {"odd", Value} pairs.
@@ -31,7 +32,7 @@ test()->
             "even" -> {"odd", [{{Key, Idx}, 1} | Acc]};
             _ -> {"even", [{{Key, Idx}, 1} | Acc]}
         end
-    end, {"odd", []}, lists:seq(1, ?ROWS)),
+    end, {"odd", []}, lists:seq(1, rows())),
 
     {ok, Btree2} = couch_btree:add_remove(Btree, EvenOddKVs, []),
 
@@ -45,7 +46,7 @@ test()->
 
     etap:fun_is(
         fun
-            ({ok, [{{"odd", _}, ?ROWS div 2}, {{"even", _}, ?ROWS div 2}]}) ->
+            ({ok, [{{"odd", _}, 500}, {{"even", _}, 500}]}) ->
                 true;
             (_) ->
                 false
@@ -56,7 +57,7 @@ test()->
 
     etap:fun_is(
         fun
-            ({ok, [{{"odd", _}, ?ROWS div 2}, {{"even", _}, ?ROWS div 2}]}) ->
+            ({ok, [{{"odd", _}, 500}, {{"even", _}, 500}]}) ->
                 true;
             (_) ->
                 false
@@ -67,7 +68,7 @@ test()->
 
     etap:fun_is(
         fun
-            ({ok, [{{"even", _}, ?ROWS div 2}, {{"odd", _}, ?ROWS div 2}]}) ->
+            ({ok, [{{"even", _}, 500}, {{"odd", _}, 500}]}) ->
                 true;
             (_) ->
                 false
@@ -78,7 +79,7 @@ test()->
     
     etap:fun_is(
         fun
-            ({ok, [{{"odd", _}, ?ROWS div 2}, {{"even", _}, ?ROWS div 2}]}) ->
+            ({ok, [{{"odd", _}, 500}, {{"even", _}, 500}]}) ->
                 true;
             (_) ->
                 false
@@ -89,7 +90,7 @@ test()->
     
     etap:fun_is(
         fun
-            ({ok, [{{"even", _}, ?ROWS div 2}]}) -> true;
+            ({ok, [{{"even", _}, 500}]}) -> true;
             (_) -> false
         end,
         couch_btree:fold_reduce(Btree2, fwd, SK1, EK1, GroupFun, FoldFun, []),
@@ -98,7 +99,7 @@ test()->
 
     etap:fun_is(
         fun
-            ({ok, [{{"odd", _}, ?ROWS div 2}]}) -> true;
+            ({ok, [{{"odd", _}, 500}]}) -> true;
             (_) -> false
         end,
         couch_btree:fold_reduce(Btree2, fwd, SK2, EK2, GroupFun, FoldFun, []),
@@ -107,7 +108,7 @@ test()->
 
     etap:fun_is(
         fun
-            ({ok, [{{"odd", _}, ?ROWS div 2}]}) -> true;
+            ({ok, [{{"odd", _}, 500}]}) -> true;
             (_) -> false
         end,
         couch_btree:fold_reduce(Btree2, rev, EK2, SK2, GroupFun, FoldFun, []),
@@ -116,7 +117,7 @@ test()->
     
     etap:fun_is(
         fun
-            ({ok, [{{"even", _}, ?ROWS div 2}, {{"odd", _}, ?ROWS div 2}]}) ->
+            ({ok, [{{"even", _}, 500}, {{"odd", _}, 500}]}) ->
                 true;
             (_) ->
                 false

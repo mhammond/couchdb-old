@@ -75,3 +75,12 @@ utils/run
 
 tmp
 
+
+# for make check
+
+test/etap/temp.*
+
+# for make cover
+
+cover/*
+

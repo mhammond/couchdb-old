@@ -2,11 +2,13 @@
 %% -*- erlang -*-
 %%! -pa ./src/couchdb -sasl errlog_type error -boot start_sasl -noshell
 
--define(FILE_NAME, "./t/temp.020").
+filename() -> "./test/etap/temp.020".
+rows() -> 250.
 
 -record(btree, {fd, root, extract_kv, assemble_kv, less, reduce}).
 
 main(_) ->
+    code:add_pathz("src/couchdb"),
     etap:plan(48),
     case (catch test()) of
         ok ->
@@ -21,7 +23,7 @@ main(_) ->
 %% broken into multiple nodes. AKA "How do we appropiately detect if multiple
 %% nodes were created."
 test()->
-    Sorted = [{Seq, random:uniform()} || Seq <- lists:seq(1, 1000)],
+    Sorted = [{Seq, random:uniform()} || Seq <- lists:seq(1, rows())],
     etap:ok(test_kvs(Sorted), "Testing sorted keys"),
     etap:ok(test_kvs(lists:reverse(Sorted)), "Testing reversed sorted keys"),
     etap:ok(test_kvs(shuffle(Sorted)), "Testing shuffled keys."),
@@ -37,7 +39,7 @@ test_kvs(KeyValues) ->
 
     Keys = [K || {K, _} <- KeyValues],
 
-    {ok, Fd} = couch_file:open(?FILE_NAME, [create,overwrite]),
+    {ok, Fd} = couch_file:open(filename(), [create,overwrite]),
     {ok, Btree} = couch_btree:open(nil, Fd),
     etap:ok(is_record(Btree, btree), "Created btree is really a btree record"),
     etap:is(Btree#btree.fd, Fd, "Btree#btree.fd is set correctly."),

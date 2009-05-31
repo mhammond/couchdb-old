@@ -8,6 +8,7 @@
             attachments=[], deleted=false, meta=[]}).
 
 main(_) ->
+    code:add_pathz("src/couchdb"),
     etap:plan(unknown),
     case (catch test()) of
         ok ->
@@ -20,7 +21,6 @@ main(_) ->
 
 test() ->
     ok = test_to_json_success(),
-    ok = test_to_json_errors(),
     ok.
     
 test_to_json_success() ->
@@ -151,5 +151,3 @@ test_to_json_success() ->
     end, Cases),
     ok.
 
-test_to_json_errors() ->
-    ok.
