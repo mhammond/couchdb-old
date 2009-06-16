@@ -13,6 +13,7 @@ erl_crash.dump
 configure
 autom4te.cache
 build-aux
+*.diff
 
 # ./configure
 
