@@ -19,13 +19,16 @@
 % it will be automatically removed the tracking. To get the tasks list, use the
 % all/0 function
 
--export([start_link/0,init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,
+-export([start_link/0,stop/0,init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,
     code_change/3,add_task/3,update/1,update/2,all/0,set_update_frequency/1]).
 
 -include("couch_db.hrl").
     
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+stop() ->
+    gen_server:cast(?MODULE, stop).
 
 to_binary(L) when is_list(L) ->
     ?l2b(L);
@@ -57,11 +60,7 @@ update(Format, Data) ->
 
 % returns a list of proplists. Each proplist describes a running task.
 all() ->
-    [[{type,Type},
-        {task,Task},
-        {status,Status},
-        {pid,?l2b(pid_to_list(Pid))}] ||
-            {Pid, {Type,Task,Status}} <- ets:tab2list(tasks_by_pid)].
+    gen_server:call(?MODULE,{all}).
     
 init([]) ->
     % read configuration settings and register for configuration changes
@@ -80,14 +79,26 @@ handle_call({add_task,Type,TaskName,StatusText}, {From, _}, Server) ->
         {reply, ok, Server};
     [_] ->
         {reply, {add_task_error, already_registered}, Server}
-    end.
+    end;
+handle_call({all}, _, Server) ->
+    All = [[{type,Type},
+	    {task,Task},
+	    {status,Status},
+	    {pid,?l2b(pid_to_list(Pid))}] ||
+	      {Pid, {Type,Task,Status}} <- ets:tab2list(tasks_by_pid)],
+    {reply, All, Server}.
+
     
 handle_cast({update_status, Pid, StatusText}, Server) ->
     [{Pid, {Type,TaskName,_StatusText}}] = ets:lookup(tasks_by_pid, Pid),
     true = ets:insert(tasks_by_pid, {Pid, {Type,TaskName,StatusText}}),
-    {noreply, Server}.
+    {noreply, Server};
+
+handle_cast(stop, State) ->
+    {stop, normal, State}.
 
 handle_info({'DOWN', _MonitorRef, _Type, Pid, _Info}, Server) ->
+    %% should we also erlang:demonitor(_MonitorRef), ?
     ets:delete(tasks_by_pid, Pid),
     {noreply, Server}.
 
