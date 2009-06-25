@@ -3,7 +3,7 @@
 
 main(_) ->
     code:add_pathz("src/couchdb"),
-    etap:plan(unknown),
+    etap:plan(8),
     case (catch test()) of
         ok ->
             etap:end_tests();
@@ -38,6 +38,15 @@ test() ->
 	),
 
     ChildPid1 = spawn(fun() -> loop() end),
+
+    % This is largely implicit in that nothing else breaks
+    % as ok is just returned from gen_server:cast()
+    etap:is(
+        couch_ref_counter:drop(RefCtr, ChildPid1),
+        ok,
+        "Dropping an unknown Pid is ignored."
+    ),
+
     couch_ref_counter:add(RefCtr, ChildPid1),
     etap:is(
         couch_ref_counter:count(RefCtr),
