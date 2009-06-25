@@ -1,5 +1,3 @@
-
-# copied from jChirs .gitignore
 *.beam
 *.gz
 *.tpl
@@ -8,7 +6,6 @@
 *.m4
 *.in
 *.in~
-
 erl_crash.dump
 configure
 autom4te.cache
@@ -30,9 +27,7 @@ etc/launchd/Makefile
 etc/logrotate.d/Makefile
 libtool
 share/Makefile
-
 src/couchdb/.deps/*
-
 src/couchdb/Makefile
 src/mochiweb/Makefile
 stamp-h1
@@ -40,9 +35,7 @@ test/.deps/
 test/Makefile
 var/Makefile
 
-
 # for make
-
 
 bin/couchdb
 bin/couchdb.1
@@ -51,9 +44,7 @@ bin/couchjs.1
 etc/couchdb/default.ini
 etc/launchd/org.apache.couchdb.plist
 etc/logrotate.d/couchdb
-
 src/couchdb/.libs/*
-
 src/couchdb/couch.app
 src/couchdb/couch_erl_driver.la
 src/couchdb/couchjs
@@ -61,11 +52,9 @@ src/couchdb/edoc-info
 src/couchdb/erlang.png
 src/couchdb/stylesheet.css
 test/local.ini
-
 share/server/main.js
 
 # for make dev
-
 
 bin/.deps/
 bin/couchjs_dev
@@ -73,9 +62,7 @@ bin/couchpw
 etc/couchdb/default_dev.ini
 etc/couchdb/local_dev.ini
 utils/run
-
 tmp
-
 
 # for make check
 
@@ -84,4 +71,3 @@ test/etap/temp.*
 # for make cover
 
 cover/*
-
