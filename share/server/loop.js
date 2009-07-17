@@ -44,9 +44,8 @@ var dispatch = {
   "list"     : Render.list
 };
 
-while (line = eval(readline())) {
-  cmd = eval(line);
-  line_length = line.length;
+while (cmd = readobject()) {
+  //console_log(toJSON(cmd));
   try {
     cmdkey = cmd.shift();
     if (dispatch[cmdkey]) {

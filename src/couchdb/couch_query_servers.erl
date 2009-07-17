@@ -296,7 +296,12 @@ get_query_server_config() ->
 new_process(Langs, Lang) ->
     case ets:lookup(Langs, Lang) of
     [{Lang, Command}] ->
-        couch_os_process:start_link(Command);
+        CommOpts = [
+            {writer, fun couch_os_process:writeterm/2},
+            {reader, fun couch_os_process:readterm/1}
+        ],
+        PortOpts = [{packet, 4}, binary, exit_status, hide],
+        couch_os_process:start_link(Command, CommOpts, PortOpts);
     _ ->
         {unknown_query_language, Lang}
     end.
