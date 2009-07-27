@@ -14,7 +14,7 @@
 # spec test/query_server_spec.rb -f specdoc --color
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/.." unless defined?(COUCH_ROOT)
-LANGUAGE = "erlang"
+LANGUAGE = "js"
 
 require 'spec'
 require 'json'
@@ -131,12 +131,12 @@ functions = {
     "erlang" => %{fun(Keys, Values, ReReduce) -> lists:sum(Values) end.}
   },
   "validate-forbidden" => {
-    "js" => %[JS
+    "js" => <<-JS,
       function(newDoc, oldDoc, userCtx) {
         if(newDoc.bad)
-          throw({forbidden:"bad doc"}); "foo bar";}
+          throw({forbidden:"bad doc"}); "foo bar";
       }
-    ],
+    JS
     "erlang" => <<-ERLANG
       fun({NewDoc}, _OldDoc, _UserCtx) ->
         case proplists:get_value(<<"bad">>, NewDoc) of
@@ -149,7 +149,8 @@ functions = {
   "show-simple" => {
     "js" => <<-JS,
         function(doc, req) {
-
+            log("ok");
+            return [doc.title, doc.body].join(' - ');
         }
     JS
     "erlang" => <<-ERLANG
