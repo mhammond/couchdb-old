@@ -155,17 +155,17 @@ functions = {
         }
     JS
     "erlang" => <<-ERLANG
-	    fun({Doc}, Req) ->
-		    StrItems = [
+        fun({Doc}, Req) ->
+            StrItems = [
                 proplists:get_value(<<"title">>, Doc),
                 <<" - ">>,
                 proplists:get_value(<<"body">>, Doc)
             ],
-	    	StrVal = lists:concat(
+            StrVal = lists:concat(
                 lists:map(fun(V) -> binary_to_list(V) end, StrItems)
             ),
-	 	    [<<"resp">>, {[{<<"body">>, list_to_binary(StrVal)}]}]
-	    end.
+             [<<"resp">>, {[{<<"body">>, list_to_binary(StrVal)}]}]
+        end.
     ERLANG
   },
   "show-headers" => {
@@ -177,24 +177,24 @@ functions = {
         }
      JS
     "erlang" => <<-ERLANG
-	fun({Doc}, Req) ->
-		StrItems = [
+    fun({Doc}, Req) ->
+        StrItems = [
             proplists:get_value(<<"title">>, Doc),
             <<" - ">>,
             proplists:get_value(<<"body">>, Doc)
         ],
-		StrVal = lists:concat(
+        StrVal = lists:concat(
             lists:map( fun(V) -> binary_to_list(V) end, StrItems)
         ),
-		[
+        [
             <<"resp">>, 
-		    {[
-			    {<<"body">>, list_to_binary(StrVal)},
-			    {<<"code">>, 200},
-			    {<<"headers">>, {[{<<"X-Plankton">>, <<"Rusty">>}]}}
-		    ]}
+            {[
+                {<<"body">>, list_to_binary(StrVal)},
+                {<<"code">>, 200},
+                {<<"headers">>, {[{<<"X-Plankton">>, <<"Rusty">>}]}}
+            ]}
         ]
-	end.
+    end.
     ERLANG
   },
   "show-sends" => {
@@ -207,14 +207,14 @@ functions = {
         };
     JS
     "erlang" => <<-ERLANG
-	fun(Head, Req) ->
-		[
+    fun(Head, Req) ->
+        [
             <<"start">>, 
-		    [<<"first chunk">>, <<"second \\"chunk\\"">>],
-		    {[{<<"headers">>, {[{<<"Content-Type">>, <<"text/plain">>}]}}]}
-		    [<<"headers">> , <<"Content-Type">>, <<"text/plain">>]
-		]
-	end.
+            [<<"first chunk">>, <<"second \\"chunk\\"">>],
+            {[{<<"headers">>, {[{<<"Content-Type">>, <<"text/plain">>}]}}]}
+            [<<"headers">> , <<"Content-Type">>, <<"text/plain">>]
+        ]
+    end.
     ERLANG
   },
   "show-while-get-rows" => {
